@@ -75,15 +75,23 @@ export default function Home() {
   const [news, setNews] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [category, setCategory] = useState('All');
+  const [selectedCategories, setSelectedCategories] = useState([]);
   const [darkMode, setDarkMode] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [lastFetchTime, setLastFetchTime] = useState(null);
+  const [refreshInterval, setRefreshInterval] = useState(300000);
   const [searchQuery, setSearchQuery] = useState('');
   const [bookmarks, setBookmarks] = useState([]);
   const [sortOrder, setSortOrder] = useState('newest');
-  const [refreshInterval, setRefreshInterval] = useState(300000);
   const [showSettings, setShowSettings] = useState(false);
+
+  function toggleCategory(cat) {
+    if (cat === 'All') {
+      setSelectedCategories(CATEGORIES.filter(c => c !== 'All'));
+      return;
+    }
+    setSelectedCategories(prev => prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat]);
+  }
 
   useEffect(() => {
     const settings = loadSettings();
@@ -114,22 +122,10 @@ export default function Home() {
 
   const sources = [...new Set(news.map(n => n.source))].sort();
 
-  const [selectedSources, setSelectedSources] = useState(['All']);
+  const [selectedSources, setSelectedSources] = useState([]);
 
   function toggleSource(source) {
-    if (source === 'All') {
-      setSelectedSources(['All']);
-      return;
-    }
-    const withoutAll = selectedSources.filter(s => s !== 'All');
-    const newSelection = withoutAll.includes(source)
-      ? withoutAll.filter(s => s !== source)
-      : [...withoutAll, source];
-    if (newSelection.length === sources.length || newSelection.length === 0) {
-      setSelectedSources(['All']);
-    } else {
-      setSelectedSources(newSelection);
-    }
+    setSelectedSources(prev => prev.includes(source) ? prev.filter(s => s !== source) : [...prev, source]);
   }
 
   useEffect(() => {
@@ -172,8 +168,8 @@ export default function Home() {
   }
 
   const filteredNews = news.filter(n => {
-    const matchesCategory = category === 'All' || n.category === category;
-    const matchesSource = selectedSources.includes('All') || selectedSources.includes(n.source);
+    const matchesCategory = selectedCategories.length === 0 || selectedCategories.includes(n.category);
+    const matchesSource = selectedSources.length === 0 || selectedSources.includes(n.source);
     if (!searchQuery.trim()) return matchesCategory && matchesSource;
     const q = searchQuery.toLowerCase();
     return matchesCategory && matchesSource && (n.title.toLowerCase().includes(q) || (n.description && n.description.toLowerCase().includes(q)));
@@ -333,8 +329,8 @@ export default function Home() {
         <div className={`flex items-center gap-2 mb-3 ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>
           <Filter size={16} />
           {CATEGORIES.map(cat => (
-            <button key={cat} onClick={() => setCategory(cat)} className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${
-              category === cat ? darkMode ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/30' : 'bg-gray-900 text-white shadow-lg shadow-gray-900/20' : darkMode ? 'bg-gray-800 hover:bg-gray-700 text-gray-400' : 'bg-white hover:bg-gray-100 text-gray-600 border border-gray-200'
+            <button key={cat} onClick={() => toggleCategory(cat)} className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${
+              selectedCategories.length === 0 || (cat === 'All' && selectedCategories.length === CATEGORIES.length - 1) || selectedCategories.includes(cat) ? darkMode ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/30' : 'bg-gray-900 text-white shadow-lg shadow-gray-900/20' : darkMode ? 'bg-gray-800 hover:bg-gray-700 text-gray-400' : 'bg-white hover:bg-gray-100 text-gray-600 border border-gray-200'
             }`}>
               {cat}
             </button>
@@ -348,7 +344,7 @@ export default function Home() {
             <span className={`text-xs ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>Source:</span>
             {sources.map(source => (
               <button key={source} onClick={() => toggleSource(source)} className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
-                selectedSources.includes('All') || selectedSources.includes(source) ? darkMode ? 'bg-blue-600/50 text-blue-200' : 'bg-gray-900/90 text-white shadow-sm' : darkMode ? 'bg-gray-800 hover:bg-gray-700 text-gray-400' : 'bg-white hover:bg-gray-100 text-gray-600 border border-gray-200'
+                selectedSources.length === 0 || selectedSources.includes(source) ? darkMode ? 'bg-blue-600/50 text-blue-200' : 'bg-gray-900/90 text-white shadow-sm' : darkMode ? 'bg-gray-800 hover:bg-gray-700 text-gray-400' : 'bg-white hover:bg-gray-100 text-gray-600 border border-gray-200'
               }`}>
                 {source}
               </button>
@@ -436,7 +432,7 @@ export default function Home() {
           </div>
         )}
 
-        <div className={`grid gap-5 ${darkMode ? 'text-gray-100' : 'text-gray-900'}`}>
+        <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 ${darkMode ? 'text-gray-100' : 'text-gray-900'}`}>
           {mainItems.map((item, idx) => (
             <a key={`main-${idx}`} href={item.link} target="_blank" rel="noopener noreferrer" className={`block rounded-2xl border transition-all hover:shadow-lg group overflow-hidden ${
               darkMode ? 'bg-gray-900/50 border-gray-800 hover:border-gray-700' : 'bg-white border-gray-200 hover:border-gray-300'
