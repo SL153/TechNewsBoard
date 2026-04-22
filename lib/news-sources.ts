@@ -18,13 +18,17 @@ export const RSS_FEEDS: NewsSource[] = [
   { url: 'https://venturebeat.com/feed/', category: 'Startups', source: 'VentureBeat', maxItems: 15, fallbackUrls: [] },
   { url: 'https://feeds.fastcompany.com/fastcompany/tech', category: 'Innovation', source: 'Fast Company', maxItems: 10, fallbackUrls: ['https://www.fastcompany.com/rss'] },
   { url: 'https://www.theinformation.com/feed', category: 'Startups', source: 'The Information', maxItems: 8, fallbackUrls: [] },
+  { url: 'https://feeds.feedburner.com/TechCrunch/category/artificial-intelligence/', category: 'AI', source: 'TechCrunch AI', maxItems: 15, fallbackUrls: ['https://techcrunch.com/feed/'] },
+  { url: 'https://news.google.com/rss/search?q=technology&hl=en-US&gl=US&ceid=US:en', category: 'Consumer Tech', source: 'Google News Tech', maxItems: 15, fallbackUrls: [] },
 ];
 
 export const CATEGORY_MAP = [
   'All',
   'Startups',
   'Consumer Tech',
+  'AI',
   'Innovation',
+  'Open Source',
 ] as const;
 
 export type Category = (typeof CATEGORY_MAP)[number];

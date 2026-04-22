@@ -1,4 +1,3 @@
-import RSSParser from 'rss-parser';
 import type { NewsSource } from './news-sources';
 
 const DEFAULT_TIMEOUT = 10000;
@@ -13,6 +12,8 @@ export interface ParsedNewsItem {
   pubDate: string | null;
   category: string;
   source: string;
+  language?: string | null;
+  gradientClass?: string;
 }
 
 function truncate(str: string, len: number): string {
@@ -20,47 +21,102 @@ function truncate(str: string, len: number): string {
   return str.slice(0, len) + '...';
 }
 
-function extractImage(item: any): string | null {
-  if (item.enclosure?.url) return item.enclosure.url;
-  if (item.enclosure?.link) return item.enclosure.link;
-  if (typeof item['media:thumbnail'] === 'string') return item['media:thumbnail'];
-  if (item['media:thumbnail']?.url) return item['media:thumbnail'].url;
-  if (item['media:thumbnail']?.thumbnail?.url) return item['media:thumbnail'].thumbnail.url;
-  if (typeof item['media:content'] === 'string') return item['media:content'];
-  if (Array.isArray(item['media:content']) && item['media:content'][0]?.url) return item['media:content'][0].url;
-  if (item['media:content']?.url) return item['media:content'].url;
-  if (typeof item.image === 'string') return item.image;
-  if (typeof item.thumb === 'string') return item.thumb;
-  if (Array.isArray(item['atom:link'])) {
-    const enclosureLink = item['atom:link'].find((l: any) => l.rel === 'enclosure');
-    if (enclosureLink?.href) return enclosureLink.href;
-  }
-  if (typeof item['media:group'] === 'object' && Array.isArray(item['media:group'])) {
-    const content = item['media:group'].find((g: any) => g.url);
-    if (content?.url) return content.url;
-  }
-  const html = item.content || '';
-  const match = html.match(/<img[^>]+src="([^"]+)"/);
-  if (match) return match[1];
-  const link = item.link || '';
+function normalizeImageUrl(url: string, link: string | null | undefined): string {
+  if (!url) return url;
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  const articleLink = link || '';
   let domain: string | null = null;
   try {
-    const urlObj = new URL(link);
+    const urlObj = new URL(articleLink);
     domain = urlObj.hostname.replace(/^www\./, '');
   } catch {
-    const match2 = link.match(/:\/\/([^/]+)/);
+    const match = articleLink.match(/:\/\/([^/]+)/);
+    if (match) domain = match[1].replace(/^www\./, '');
+  }
+  if (domain) return `https://${domain}${url.startsWith('/') ? '' : '/'}${url}`;
+  return url;
+}
+
+function extractImage(item: any): string | null {
+  if (item.enclosure?.url) return normalizeImageUrl(item.enclosure.url, item.link);
+  if (typeof item['media:thumbnail'] === 'string') return normalizeImageUrl(item['media:thumbnail'], item.link);
+  if (item['media:thumbnail']?.url) return normalizeImageUrl(item['media:thumbnail'].url, item.link);
+  if (typeof item.image === 'string') return normalizeImageUrl(item.image, item.link);
+  const html = item.content || '';
+  const match = html.match(/<img[^>]+src="([^"]+)"/);
+  if (match) return normalizeImageUrl(match[1], item.link);
+  let domain: string | null = null;
+  try {
+    const urlObj = new URL(item.link || '');
+    domain = urlObj.hostname.replace(/^www\./, '');
+  } catch {
+    const match2 = (item.link || '').match(/:\/\/([^/]+)/);
     if (match2) domain = match2[1].replace(/^www\./, '');
   }
   if (domain) return `https://www.google.com/s2/favicons?sz=640&domain=${domain}`;
   return null;
 }
 
-async function fetchWithRetry(url: string, parser: RSSParser, maxRetries: number = MAX_RETRIES): Promise<any> {
+async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    return response;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function parseRSSXML(xmlText: string): Promise<any> {
+  const items: any[] = [];
+
+  // Extract items using regex parsing (fallback when DOMParser unavailable)
+  const itemRegex = /<item>([\s\S]*?)<\/item>/g;
+  let match;
+  while ((match = itemRegex.exec(xmlText)) !== null) {
+    const itemXml = match[1];
+
+    const titleMatch = itemXml.match(/<title>([\s\S]*?)<\/title>/);
+    const linkMatch = itemXml.match(/<link>([\s\S]*?)<\/link>/);
+    const guidMatch = itemXml.match(/<guid>([\s\S]*?)<\/guid>/);
+    const descMatch = itemXml.match(/<description>([\s\S]*?)<\/description>/);
+    const contentMatch = itemXml.match(/<content:encoded>([\s\S]*?)<\/content:encoded>/);
+    const pubDateMatch = itemXml.match(/<pubDate>([\s\S]*?)<\/pubDate>/);
+    const enclosureMatch = itemXml.match(/<enclosure url="([^"]+)"[^>]*type="([^"]*)"[^>]*\/?>/);
+
+    const mediaThumbnailMatch = itemXml.match(/<media:thumbnail url="([^"]+)"/);
+    const mediaContentMatches = [...itemXml.matchAll(/<media:content url="([^"]+)"/g)];
+
+    items.push({
+      title: titleMatch?.[1]?.trim() || '',
+      link: linkMatch?.[1]?.trim() || guidMatch?.[1]?.trim() || '',
+      guid: guidMatch?.[1]?.trim() || '',
+      contentSnippet: descMatch?.[1]?.trim() || '',
+      content: contentMatch?.[1]?.trim() || descMatch?.[1]?.trim() || '',
+      pubDate: pubDateMatch?.[1]?.trim() || null,
+      enclosure: enclosureMatch ? { url: enclosureMatch[1], type: enclosureMatch[2] } : null,
+      'media:thumbnail': mediaThumbnailMatch?.[1] || null,
+      'media:content': mediaContentMatches.length > 0 ? mediaContentMatches.map(m => ({ url: m[1] })) : null,
+    });
+  }
+
+  return { items };
+}
+
+async function fetchRSSFeed(url: string, timeoutMs: number): Promise<any> {
+  const response = await fetchWithTimeout(url, timeoutMs);
+  if (!response.ok) throw new Error(`RSS feed returned ${response.status}`);
+  const xmlText = await response.text();
+  return parseRSSXML(xmlText);
+}
+
+async function fetchWithRetry(url: string, maxRetries: number = MAX_RETRIES): Promise<any> {
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      const result = await parser.parseURL(url);
+      const result = await fetchRSSFeed(url, DEFAULT_TIMEOUT);
       return result;
     } catch (err) {
       lastError = err as Error;
@@ -76,13 +132,12 @@ async function fetchWithRetry(url: string, parser: RSSParser, maxRetries: number
 }
 
 export async function fetchFeedWithFallback(feed: NewsSource): Promise<ParsedNewsItem[]> {
-  const parser = new RSSParser({ timeout: feed.timeout || DEFAULT_TIMEOUT, customFields: { item: [['enclosure', 'enclosure'], ['media:thumbnail', 'media:thumbnail'], ['media:content', 'media:content'], ['image', 'image'], ['thumb', 'thumb'], ['atom:link', 'atom:link'], ['media:group', 'media:group']] } });
   const maxItems = feed.maxItems || 15;
   const results: ParsedNewsItem[] = [];
 
   // Try primary URL first
   try {
-    const feedResult = await fetchWithRetry(feed.url, parser);
+    const feedResult = await fetchWithRetry(feed.url);
     const items = (feedResult.items || []).slice(0, maxItems).map((item: any) => ({
       title: item.title || '',
       link: item.link || item.guid || '',
@@ -103,7 +158,7 @@ export async function fetchFeedWithFallback(feed: NewsSource): Promise<ParsedNew
     for (const fallbackUrl of feed.fallbackUrls) {
       try {
         console.log(`Trying fallback URL for ${feed.source}: ${fallbackUrl}`);
-        const feedResult = await fetchWithRetry(fallbackUrl, parser);
+        const feedResult = await fetchWithRetry(fallbackUrl);
         const items = (feedResult.items || []).slice(0, maxItems).map((item: any) => ({
           title: item.title || '',
           link: item.link || item.guid || '',

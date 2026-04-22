@@ -117,7 +117,7 @@ export async function fetchGitHubTrending(): Promise<ParsedNewsItem[]> {
         language: lang,
         gradientClass: gradient,
         pubDate: new Date().toISOString(),
-        category: 'Innovation',
+        category: 'Open Source',
         source: 'GitHub Trending',
       });
 
