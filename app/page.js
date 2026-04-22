@@ -14,10 +14,11 @@ const DAY_RANGES = [
 ];
 const REFRESH_INTERVALS = [
   { label: 'Off', value: 0 },
-  { label: '1 min', value: 60000 },
-  { label: '5 min', value: 300000 },
-  { label: '10 min', value: 600000 },
+  { label: '15 min', value: 900000 },
   { label: '30 min', value: 1800000 },
+  { label: '1 hour', value: 3600000 },
+  { label: '3 hours', value: 10800000 },
+  { label: '12 hours', value: 43200000 },
 ];
 
 const BOOKMARKS_KEY = 'technews-bookmarks';
@@ -57,12 +58,12 @@ export default function Home() {
   const [news, setNews] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [selectedCategories, setSelectedCategories] = useState(new Set(['All']));
-  const [selectedSources, setSelectedSources] = useState(new Set());
-  const [dayRange, setDayRange] = useState(1);
+  const [selectedCategories, setSelectedCategories] = useState(null);
+  const [selectedSources, setSelectedSources] = useState(null);
+  const [dayRange, setDayRange] = useState(3);
   const [sortBy, setSortBy] = useState('newest');
   const [darkMode, setDarkMode] = useState(false);
-  const [autoRefreshInterval, setAutoRefreshInterval] = useState(300000);
+  const [autoRefreshInterval, setAutoRefreshInterval] = useState(1800000);
   const [lastFetchTime, setLastFetchTime] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [bookmarks, setBookmarks] = useState([]);
@@ -74,6 +75,8 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    setSelectedCategories(new Set(['All']));
+    setSelectedSources(new Set());
     setBookmarks(loadBookmarks());
   }, []);
 
@@ -81,7 +84,7 @@ export default function Home() {
     const savedSettings = loadSettings();
     if (savedSettings) {
       setDarkMode(savedSettings.darkMode ?? false);
-      setAutoRefreshInterval(savedSettings.autoRefreshInterval ?? 300000);
+      setAutoRefreshInterval(savedSettings.autoRefreshInterval ?? 1800000);
     }
   }, []);
 
@@ -180,8 +183,10 @@ export default function Home() {
       const cutoff = new Date(Date.now() - dayRange * 86400000);
       if (pubDate < cutoff) return false;
     }
-    if (!selectedCategories.has('All') && !selectedCategories.has(n.category)) return false;
-    if (selectedSources.size > 0 && !selectedSources.has(n.source)) return false;
+    const cats = selectedCategories || new Set(['All']);
+    const sources = selectedSources || new Set();
+    if (!cats.has('All') && !cats.has(n.category)) return false;
+    if (sources.size > 0 && !sources.has(n.source)) return false;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       if (!(n.title.toLowerCase().includes(q) || (n.description && n.description.toLowerCase().includes(q)))) return false;
@@ -200,7 +205,8 @@ export default function Home() {
   function formatPubDate(pubDate) {
     if (!pubDate) return '';
     try {
-      return new Date(pubDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      const date = new Date(pubDate);
+      return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(date);
     } catch {
       return '';
     }
@@ -227,7 +233,7 @@ export default function Home() {
   }
 
   return (
-    <div className={`min-h-screen ${darkMode ? 'bg-gray-950 text-gray-100' : 'bg-gradient-to-br from-slate-50 to-blue-50 text-gray-900'} transition-colors duration-300`}>
+    <div className={`min-h-screen ${darkMode ? 'bg-gray-950 text-gray-100' : 'bg-gradient-to-br from-slate-50 to-blue-50 text-gray-900'} transition-[background-color,color] duration-300`}>
       {/* Header */}
       <header className={`sticky top-0 z-50 border-b backdrop-blur-xl ${darkMode ? 'bg-gray-950/80 border-gray-800' : 'bg-white/70 border-gray-200'}`}>
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
@@ -243,7 +249,7 @@ export default function Home() {
             <button
               onClick={() => setSettingsOpen(!settingsOpen)}
               className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-100'} ${settingsOpen ? (darkMode ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-900') : ''}`}
-              title="Settings"
+              aria-label="Settings"
             >
               <Settings size={18} />
             </button>
@@ -252,7 +258,7 @@ export default function Home() {
                 {REFRESH_INTERVALS.find(i => i.value === autoRefreshInterval)?.label}
               </span>
             )}
-            <Link href="/bookmarks" className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-100'} relative`} title="Bookmarks">
+            <Link href="/bookmarks" className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-100'} relative`} aria-label="Bookmarks">
               <Bookmark size={18} />
               {bookmarks.length > 0 && (
                 <span className={`absolute -top-0.5 -right-0.5 text-xs w-4 h-4 rounded-full flex items-center justify-center font-bold ${darkMode ? 'bg-blue-600 text-white' : 'bg-blue-600 text-white'}`}>
@@ -263,15 +269,15 @@ export default function Home() {
             <button
               onClick={() => fetchNews(true)}
               disabled={loading}
+              aria-label="Refresh now"
               className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-100'} ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
-              title="Refresh now"
             >
               <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
             </button>
             <button
               onClick={() => setDarkMode(!darkMode)}
+              aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
               className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`}
-              title="Toggle theme"
             >
               {darkMode ? <Sun size={18} /> : <Moon size={18} />}
             </button>
@@ -284,7 +290,7 @@ export default function Home() {
             <div className="max-w-6xl mx-auto px-4 py-3">
               <div className="flex items-center justify-between mb-2">
                 <span className={`text-xs font-medium ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Auto-refresh interval</span>
-                <button onClick={() => setSettingsOpen(false)} className={`p-1 rounded ${darkMode ? 'hover:bg-gray-800 text-gray-600' : 'hover:bg-gray-100 text-gray-400'}`}>
+                <button onClick={() => setSettingsOpen(false)} aria-label="Close settings" className={`p-1 rounded ${darkMode ? 'hover:bg-gray-800 text-gray-600' : 'hover:bg-gray-100 text-gray-400'}`}>
                   <X size={14} />
                 </button>
               </div>
@@ -293,6 +299,7 @@ export default function Home() {
                   <button
                     key={interval.value}
                     onClick={() => setAutoRefreshInterval(interval.value)}
+                    touch-action="manipulation"
                     className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
                       autoRefreshInterval === interval.value
                         ? darkMode ? 'bg-blue-600 text-white' : 'bg-gray-900 text-white'
@@ -317,12 +324,13 @@ export default function Home() {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
+            aria-label="Search articles by title or description"
             placeholder="Search articles by title or description..."
-            className={`w-full pl-9 pr-4 py-2.5 rounded-xl text-sm border transition-colors ${
+            className={`w-full pl-9 pr-4 py-2.5 rounded-xl text-sm border transition-[border-color,background-color,color] ${
               darkMode
                 ? 'bg-gray-900 border-gray-800 text-gray-100 placeholder:text-gray-600 focus:border-blue-700'
                 : 'bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 focus:border-gray-400'
-            } outline-none`}
+            } focus-visible:ring-2 focus-visible:ring-blue-500`}
           />
           {searchQuery && (
             <button
@@ -343,10 +351,11 @@ export default function Home() {
               key={cat}
               onClick={() => toggleCategory(cat)}
               className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
-                selectedCategories.has(cat)
+                (selectedCategories || new Set(['All'])).has(cat)
                   ? darkMode ? 'bg-blue-600 text-white' : 'bg-gray-900 text-white'
                   : darkMode ? 'bg-gray-800 hover:bg-gray-700 text-gray-400 border border-gray-700' : 'bg-white hover:bg-gray-100 text-gray-600 border border-gray-200'
               }`}
+              touch-action="manipulation"
             >
               {cat}
             </button>
@@ -358,6 +367,7 @@ export default function Home() {
             <button
               key={range.label}
               onClick={() => setDayRange(range.days)}
+              touch-action="manipulation"
               className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
                 dayRange === range.days
                   ? darkMode ? 'bg-blue-600 text-white' : 'bg-gray-900 text-white'
@@ -373,6 +383,7 @@ export default function Home() {
           <div className="flex gap-1">
             <button
               onClick={() => setSortBy('newest')}
+              touch-action="manipulation"
               className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
                 sortBy === 'newest'
                   ? darkMode ? 'bg-blue-600 text-white' : 'bg-gray-900 text-white'
@@ -383,6 +394,7 @@ export default function Home() {
             </button>
             <button
               onClick={() => setSortBy('oldest')}
+              touch-action="manipulation"
               className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
                 sortBy === 'oldest'
                   ? darkMode ? 'bg-blue-600 text-white' : 'bg-gray-900 text-white'
@@ -399,16 +411,17 @@ export default function Home() {
             <div className="relative">
               <button
                 onClick={() => setSourceFilterOpen(!sourceFilterOpen)}
+                touch-action="manipulation"
                 className={`px-3 py-1 rounded-full text-xs font-medium transition-all flex items-center gap-1 ${
                   sourceFilterOpen
                     ? darkMode ? 'bg-gray-800 text-white border border-gray-700' : 'bg-gray-100 text-gray-900 border border-gray-200'
-                    : selectedSources.size > 0
+                    : selectedSources && selectedSources.size > 0
                       ? darkMode ? 'bg-blue-600/30 text-blue-400 border border-blue-800' : 'bg-blue-50 text-blue-700 border border-blue-200'
                       : darkMode ? 'bg-gray-800 hover:bg-gray-700 text-gray-400 border border-gray-700' : 'bg-white hover:bg-gray-100 text-gray-600 border border-gray-200'
                 }`}
               >
-                {selectedSources.size > 0 ? (
-                  [...selectedSources].slice(0, 2).join(', ') + (selectedSources.size > 2 ? '...' : '')
+                {(selectedSources?.size ?? 0) > 0 ? (
+                  [...selectedSources].slice(0, 2).join(', ') + ((selectedSources?.size ?? 0) > 2 ? '...' : '')
                 ) : 'All'}
                 <ChevronDown size={12} />
               </button>
@@ -420,18 +433,19 @@ export default function Home() {
                       <button
                         key={source}
                         onClick={() => toggleSource(source)}
+                        touch-action="manipulation"
                         className={`w-full text-left px-3 py-1.5 rounded-lg text-xs transition-colors flex items-center gap-2 ${
-                          selectedSources.has(source)
+                          ((selectedSources || new Set()).has(source))
                             ? darkMode ? 'bg-blue-900/30 text-blue-400' : 'bg-blue-50 text-blue-700'
                             : darkMode ? 'hover:bg-gray-800 text-gray-400' : 'hover:bg-gray-100 text-gray-600'
                         }`}
                       >
                         <span className={`w-3 h-3 rounded border flex items-center justify-center flex-shrink-0 ${
-                          selectedSources.has(source)
+                          (selectedSources || new Set()).has(source)
                             ? (darkMode ? 'bg-blue-600 border-blue-600' : 'bg-blue-600 border-blue-600')
                             : (darkMode ? 'border-gray-600' : 'border-gray-300')
                         }`}>
-                          {selectedSources.has(source) && <X size={8} className="text-white" />}
+                          {(selectedSources || new Set()).has(source) && <X size={8} className="text-white" />}
                         </span>
                         {source}
                       </button>
@@ -443,7 +457,7 @@ export default function Home() {
           )}
 
           {/* Active filter count */}
-          {(selectedSources.size > 0 || dayRange < Infinity || !selectedCategories.has('All') || searchQuery.trim()) && (
+          {(selectedSources && selectedSources.size > 0 || dayRange < Infinity || !selectedCategories || !selectedCategories.has('All') || searchQuery.trim()) && (
             <span className={`text-xs ${darkMode ? 'text-gray-600' : 'text-gray-400'}`}>
               ({sortedNews.length} results)
             </span>
@@ -461,7 +475,7 @@ export default function Home() {
         {error && !loading && (
           <div className={`p-5 rounded-xl mb-5 ${darkMode ? 'bg-red-950/30 border border-red-900' : 'bg-red-50 border border-red-200'}`}>
             <p className="text-sm">{error}</p>
-            <button onClick={() => fetchNews(true)} className={`mt-2 text-sm underline ${darkMode ? 'text-red-400' : 'text-red-600'}`}>Try again</button>
+            <button onClick={() => fetchNews(true)} className={`mt-2 px-3 py-1.5 text-sm rounded-lg font-medium ${darkMode ? 'bg-red-950/50 text-red-400 hover:bg-red-950' : 'bg-red-100 text-red-600 hover:bg-red-200'}`}>Try again</button>
           </div>
         )}
 
@@ -487,7 +501,7 @@ export default function Home() {
                   )}
                   {item.image && (
                     <div className={`mb-3 rounded-lg overflow-hidden ${darkMode ? 'bg-gray-800' : 'bg-gray-100'} flex items-center justify-center ${isFavicon(item.image) ? 'h-12' : ''}`}>
-                      <img src={item.image} alt="" className={`w-full ${isFavicon(item.image) ? 'h-8 object-contain p-1.5' : 'h-20 object-cover'}`} onError={e => e.currentTarget.style.display = 'none'} />
+                      <img src={item.image} alt="" className={`w-full ${isFavicon(item.image) ? 'h-8 object-contain p-1.5' : 'h-20 object-cover'}`} loading="lazy" onError={e => e.currentTarget.style.display = 'none'} />
                     </div>
                   )}
                   <div className="flex items-start justify-between gap-3">
@@ -496,11 +510,11 @@ export default function Home() {
                         <span className={`px-2 py-0.5 rounded-full font-medium ${
                           darkMode ? 'bg-blue-950/50 text-blue-300' : 'bg-blue-50 text-blue-700 border border-blue-100'
                         }`}>{item.category}</span>
-                        <span className={`w-1 h-1 rounded-full ${darkMode ? 'bg-gray-600' : 'bg-gray-300'}`} />
+                        <span className={`w-1 h-1 rounded-full ${darkMode ? 'bg-gray-600' : 'bg-gray-300'}`} aria-hidden="true" />
                         <span>{item.source}</span>
                         {item.language && (
                           <>
-                            <span className={`w-1 h-1 rounded-full ${darkMode ? 'bg-gray-600' : 'bg-gray-300'}`} />
+                            <span className={`w-1 h-1 rounded-full ${darkMode ? 'bg-gray-600' : 'bg-gray-300'}`} aria-hidden="true" />
                             <span className="text-orange-400">{item.language}</span>
                           </>
                         )}
@@ -515,12 +529,12 @@ export default function Home() {
                     <div className="flex items-center gap-1 flex-shrink-0">
                       <button
                         onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleBookmark(item); }}
+                        aria-label={isBookmarked(item.link || item.title) ? 'Remove bookmark' : 'Bookmark article'}
                         className={`p-1 rounded-lg transition-colors ${
                           isBookmarked(item.link || item.title)
                             ? (darkMode ? 'text-blue-400 hover:bg-gray-800' : 'text-blue-600 hover:bg-blue-50')
                             : (darkMode ? 'text-gray-700 hover:text-gray-400 hover:bg-gray-800' : 'text-gray-300 hover:text-gray-500 hover:bg-gray-100')
                         }`}
-                        title={isBookmarked(item.link || item.title) ? 'Remove bookmark' : 'Bookmark article'}
                       >
                         {isBookmarked(item.link || item.title) ? <BookmarkCheck size={14} /> : <Bookmark size={14} />}
                       </button>
@@ -575,6 +589,7 @@ export default function Home() {
                     src={item.image}
                     alt=""
                     className={`w-full ${isFavicon(item.image) ? 'h-8 object-contain p-1.5' : 'h-40 object-cover'}`}
+                    loading="lazy"
                     onError={e => e.currentTarget.style.display = 'none'}
                   />
                 </div>
@@ -585,11 +600,11 @@ export default function Home() {
                     <span className={`px-2 py-0.5 rounded-full font-medium ${
                       darkMode ? 'bg-blue-950/50 text-blue-300' : 'bg-blue-50 text-blue-700 border border-blue-100'
                     }`}>{item.category}</span>
-                    <span className={`w-1 h-1 rounded-full ${darkMode ? 'bg-gray-600' : 'bg-gray-300'}`} />
+                    <span className={`w-1 h-1 rounded-full ${darkMode ? 'bg-gray-600' : 'bg-gray-300'}`} aria-hidden="true" />
                     <span>{item.source}</span>
                     {item.language && (
                       <>
-                        <span className={`w-1 h-1 rounded-full ${darkMode ? 'bg-gray-600' : 'bg-gray-300'}`} />
+                        <span className={`w-1 h-1 rounded-full ${darkMode ? 'bg-gray-600' : 'bg-gray-300'}`} aria-hidden="true" />
                         <span className="text-orange-400">{item.language}</span>
                       </>
                     )}
@@ -604,12 +619,12 @@ export default function Home() {
                 <div className="flex items-center gap-2 flex-shrink-0">
                   <button
                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleBookmark(item); }}
+                    aria-label={isBookmarked(item.link || item.title) ? 'Remove bookmark' : 'Bookmark article'}
                     className={`p-1.5 rounded-lg transition-colors ${
                       isBookmarked(item.link || item.title)
                         ? (darkMode ? 'text-blue-400 hover:bg-gray-800' : 'text-blue-600 hover:bg-blue-50')
                         : (darkMode ? 'text-gray-700 hover:text-gray-400 hover:bg-gray-800' : 'text-gray-300 hover:text-gray-500 hover:bg-gray-100')
                     }`}
-                    title={isBookmarked(item.link || item.title) ? 'Remove bookmark' : 'Bookmark article'}
                   >
                     {isBookmarked(item.link || item.title) ? <BookmarkCheck size={16} /> : <Bookmark size={16} />}
                   </button>
@@ -631,7 +646,7 @@ export default function Home() {
         {!loading && sortedNews.length > 0 && (
           <div className={`mt-6 text-center text-xs ${darkMode ? 'text-gray-700' : 'text-gray-400'}`}>
             {sortedNews.length} articles from {new Set(sortedNews.map(n => n.source)).size} sources · 
-            Last updated: {lastFetchTime?.toLocaleTimeString() || new Date().toLocaleTimeString()}
+            Last updated: {lastFetchTime ? new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' }).format(lastFetchTime) : new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' }).format(new Date())}
           </div>
         )}
       </main>
