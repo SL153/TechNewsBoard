@@ -16,6 +16,11 @@ export interface ParsedNewsItem {
   gradientClass?: string;
 }
 
+function stripCDATA(str: string): string {
+  if (!str) return str;
+  return str.replace(/<!\[CDATA\[/g, '').replace(/\]\]>/g, '');
+}
+
 function truncate(str: string, len: number): string {
   if (!str || str.length <= len) return str;
   return str.slice(0, len) + '...';
@@ -89,11 +94,11 @@ async function parseRSSXML(xmlText: string): Promise<any> {
     const mediaContentMatches = [...itemXml.matchAll(/<media:content url="([^"]+)"/g)];
 
     items.push({
-      title: titleMatch?.[1]?.trim() || '',
-      link: linkMatch?.[1]?.trim() || guidMatch?.[1]?.trim() || '',
-      guid: guidMatch?.[1]?.trim() || '',
-      contentSnippet: descMatch?.[1]?.trim() || '',
-      content: contentMatch?.[1]?.trim() || descMatch?.[1]?.trim() || '',
+      title: stripCDATA(titleMatch?.[1]?.trim() || ''),
+      link: stripCDATA(linkMatch?.[1]?.trim() || guidMatch?.[1]?.trim() || ''),
+      guid: stripCDATA(guidMatch?.[1]?.trim() || ''),
+      contentSnippet: stripCDATA(descMatch?.[1]?.trim() || ''),
+      content: stripCDATA(contentMatch?.[1]?.trim() || descMatch?.[1]?.trim() || ''),
       pubDate: pubDateMatch?.[1]?.trim() || null,
       enclosure: enclosureMatch ? { url: enclosureMatch[1], type: enclosureMatch[2] } : null,
       'media:thumbnail': mediaThumbnailMatch?.[1] || null,

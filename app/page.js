@@ -59,7 +59,7 @@ export default function Home() {
   const [error, setError] = useState(null);
   const [selectedCategories, setSelectedCategories] = useState(new Set(['All']));
   const [selectedSources, setSelectedSources] = useState(new Set());
-  const [dayRange, setDayRange] = useState(7);
+  const [dayRange, setDayRange] = useState(1);
   const [sortBy, setSortBy] = useState('newest');
   const [darkMode, setDarkMode] = useState(false);
   const [autoRefreshInterval, setAutoRefreshInterval] = useState(300000);
@@ -128,11 +128,8 @@ export default function Home() {
     setSelectedCategories(prev => {
       const next = new Set(prev);
       if (cat === 'All') {
-        if (next.has('All')) {
-          next.clear();
-        } else {
-          CATEGORY_MAP.forEach(c => next.add(c));
-        }
+        next.clear();
+        next.add('All');
       } else {
         if (next.has(cat)) {
           next.delete(cat);
@@ -223,6 +220,10 @@ export default function Home() {
     } catch {
       return '';
     }
+  }
+
+  function isFavicon(url) {
+    return url?.includes('www.google.com/s2/favicons') ?? false;
   }
 
   return (
@@ -406,7 +407,9 @@ export default function Home() {
                       : darkMode ? 'bg-gray-800 hover:bg-gray-700 text-gray-400 border border-gray-700' : 'bg-white hover:bg-gray-100 text-gray-600 border border-gray-200'
                 }`}
               >
-                {selectedSources.size > 0 ? `${selectedSources.size} selected` : 'All'}
+                {selectedSources.size > 0 ? (
+                  [...selectedSources].slice(0, 2).join(', ') + (selectedSources.size > 2 ? '...' : '')
+                ) : 'All'}
                 <ChevronDown size={12} />
               </button>
               {sourceFilterOpen && (
@@ -440,7 +443,7 @@ export default function Home() {
           )}
 
           {/* Active filter count */}
-          {(selectedSources.size > 0 || dayRange < Infinity) && (
+          {(selectedSources.size > 0 || dayRange < Infinity || !selectedCategories.has('All') || searchQuery.trim()) && (
             <span className={`text-xs ${darkMode ? 'text-gray-600' : 'text-gray-400'}`}>
               ({sortedNews.length} results)
             </span>
@@ -473,24 +476,62 @@ export default function Home() {
                   href={item.link}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className={`block p-3 rounded-xl border transition-all hover:shadow-md group relative overflow-hidden ${
+                  className={`block p-4 rounded-xl border transition-all hover:shadow-md group relative overflow-hidden ${
                     darkMode
                       ? 'bg-gray-900/50 border-gray-800 hover:border-gray-700'
                       : 'bg-white border-gray-200 hover:border-gray-300 hover:shadow-lg'
                   }`}
                 >
                   {item.gradientClass && (
-                    <div className={`absolute top-0 left-0 right-0 h-1 bg-gradient-to-r ${item.gradientClass}`} />
+                    <div className={`absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r ${item.gradientClass}`} />
                   )}
-                  <h3 className="text-xs font-semibold leading-snug mb-1.5 line-clamp-2 group-hover:underline">{item.title}</h3>
-                  {item.description && (
-                    <p className={`text-[10px] leading-relaxed ${darkMode ? 'text-gray-600' : 'text-gray-400'} line-clamp-2 mb-1.5`}>
-                      {item.description}
-                    </p>
+                  {item.image && (
+                    <div className={`mb-3 rounded-lg overflow-hidden ${darkMode ? 'bg-gray-800' : 'bg-gray-100'} flex items-center justify-center ${isFavicon(item.image) ? 'h-12' : ''}`}>
+                      <img src={item.image} alt="" className={`w-full ${isFavicon(item.image) ? 'h-8 object-contain p-1.5' : 'h-20 object-cover'}`} onError={e => e.currentTarget.style.display = 'none'} />
+                    </div>
                   )}
-                  <div className={`flex items-center justify-between text-[10px] ${darkMode ? 'text-gray-600' : 'text-gray-400'}`}>
-                    <span>{item.source}</span>
-                    <ExternalLink size={10} className="opacity-0 group-hover:opacity-30 transition-opacity" />
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className={`flex items-center gap-2 mb-1.5 text-xs ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                        <span className={`px-2 py-0.5 rounded-full font-medium ${
+                          darkMode ? 'bg-blue-950/50 text-blue-300' : 'bg-blue-50 text-blue-700 border border-blue-100'
+                        }`}>{item.category}</span>
+                        <span className={`w-1 h-1 rounded-full ${darkMode ? 'bg-gray-600' : 'bg-gray-300'}`} />
+                        <span>{item.source}</span>
+                        {item.language && (
+                          <>
+                            <span className={`w-1 h-1 rounded-full ${darkMode ? 'bg-gray-600' : 'bg-gray-300'}`} />
+                            <span className="text-orange-400">{item.language}</span>
+                          </>
+                        )}
+                      </div>
+                      <h3 className="text-sm font-semibold leading-snug mb-1.5 group-hover:underline truncate">{item.title}</h3>
+                      {item.description && (
+                        <p className={`text-xs leading-relaxed ${darkMode ? 'text-gray-600' : 'text-gray-400'} line-clamp-2`}>
+                          {item.description}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <button
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleBookmark(item); }}
+                        className={`p-1 rounded-lg transition-colors ${
+                          isBookmarked(item.link || item.title)
+                            ? (darkMode ? 'text-blue-400 hover:bg-gray-800' : 'text-blue-600 hover:bg-blue-50')
+                            : (darkMode ? 'text-gray-700 hover:text-gray-400 hover:bg-gray-800' : 'text-gray-300 hover:text-gray-500 hover:bg-gray-100')
+                        }`}
+                        title={isBookmarked(item.link || item.title) ? 'Remove bookmark' : 'Bookmark article'}
+                      >
+                        {isBookmarked(item.link || item.title) ? <BookmarkCheck size={14} /> : <Bookmark size={14} />}
+                      </button>
+                      <ExternalLink size={12} className={`opacity-0 group-hover:opacity-30 transition-opacity`} />
+                    </div>
+                  </div>
+                  <div className={`flex items-center gap-2 mt-2 text-xs ${darkMode ? 'text-gray-600' : 'text-gray-400'}`}>
+                    <Clock size={12} />
+                    {formatPubDate(item.pubDate)}
+                    <span className="opacity-50">·</span>
+                    <span>{formatRelativeTime(item.pubDate)}</span>
                   </div>
                 </a>
               ))}
@@ -505,8 +546,15 @@ export default function Home() {
           </div>
         )}
 
-        <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 ${darkMode ? 'text-gray-100' : 'text-gray-900'}`}>
-          {sortedNews.map((item, idx) => (
+        {!loading && !error && restOfNews.length === 0 && sortedNews.length > 0 && (
+          <div className="text-center py-8 opacity-40">
+            <p>All articles shown above as top stories.</p>
+          </div>
+        )}
+
+        {restOfNews.length > 0 && (
+          <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 ${darkMode ? 'text-gray-100' : 'text-gray-900'}`}>
+            {restOfNews.map((item, idx) => (
             <a
               key={idx}
               href={item.link}
@@ -522,11 +570,11 @@ export default function Home() {
                 <div className={`absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r ${item.gradientClass}`} />
               )}
               {item.image && (
-                <div className={`mb-3 rounded-lg overflow-hidden ${darkMode ? 'bg-gray-800' : 'bg-gray-100'}`}>
+                <div className={`mb-3 rounded-lg overflow-hidden ${darkMode ? 'bg-gray-800' : 'bg-gray-100'} flex items-center justify-center ${isFavicon(item.image) ? 'h-12' : ''}`}>
                   <img
                     src={item.image}
                     alt=""
-                    className="w-full h-40 object-cover"
+                    className={`w-full ${isFavicon(item.image) ? 'h-8 object-contain p-1.5' : 'h-40 object-cover'}`}
                     onError={e => e.currentTarget.style.display = 'none'}
                   />
                 </div>
@@ -577,6 +625,7 @@ export default function Home() {
             </a>
           ))}
         </div>
+        )}
 
         {/* Footer */}
         {!loading && sortedNews.length > 0 && (
