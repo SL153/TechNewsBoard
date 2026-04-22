@@ -20,10 +20,39 @@ function truncate(str: string, len: number): string {
   return str.slice(0, len) + '...';
 }
 
-function extractImage(html: string | null | undefined): string | null {
-  if (!html) return null;
+function extractImage(item: any): string | null {
+  if (item.enclosure?.url) return item.enclosure.url;
+  if (item.enclosure?.link) return item.enclosure.link;
+  if (typeof item['media:thumbnail'] === 'string') return item['media:thumbnail'];
+  if (item['media:thumbnail']?.url) return item['media:thumbnail'].url;
+  if (item['media:thumbnail']?.thumbnail?.url) return item['media:thumbnail'].thumbnail.url;
+  if (typeof item['media:content'] === 'string') return item['media:content'];
+  if (Array.isArray(item['media:content']) && item['media:content'][0]?.url) return item['media:content'][0].url;
+  if (item['media:content']?.url) return item['media:content'].url;
+  if (typeof item.image === 'string') return item.image;
+  if (typeof item.thumb === 'string') return item.thumb;
+  if (Array.isArray(item['atom:link'])) {
+    const enclosureLink = item['atom:link'].find((l: any) => l.rel === 'enclosure');
+    if (enclosureLink?.href) return enclosureLink.href;
+  }
+  if (typeof item['media:group'] === 'object' && Array.isArray(item['media:group'])) {
+    const content = item['media:group'].find((g: any) => g.url);
+    if (content?.url) return content.url;
+  }
+  const html = item.content || '';
   const match = html.match(/<img[^>]+src="([^"]+)"/);
-  return match ? match[1] : null;
+  if (match) return match[1];
+  const link = item.link || '';
+  let domain: string | null = null;
+  try {
+    const urlObj = new URL(link);
+    domain = urlObj.hostname.replace(/^www\./, '');
+  } catch {
+    const match2 = link.match(/:\/\/([^/]+)/);
+    if (match2) domain = match2[1].replace(/^www\./, '');
+  }
+  if (domain) return `https://www.google.com/s2/favicons?sz=640&domain=${domain}`;
+  return null;
 }
 
 async function fetchWithRetry(url: string, parser: RSSParser, maxRetries: number = MAX_RETRIES): Promise<any> {
@@ -47,7 +76,7 @@ async function fetchWithRetry(url: string, parser: RSSParser, maxRetries: number
 }
 
 export async function fetchFeedWithFallback(feed: NewsSource): Promise<ParsedNewsItem[]> {
-  const parser = new RSSParser({ timeout: feed.timeout || DEFAULT_TIMEOUT });
+  const parser = new RSSParser({ timeout: feed.timeout || DEFAULT_TIMEOUT, customFields: { item: [['enclosure', 'enclosure'], ['media:thumbnail', 'media:thumbnail'], ['media:content', 'media:content'], ['image', 'image'], ['thumb', 'thumb'], ['atom:link', 'atom:link'], ['media:group', 'media:group']] } });
   const maxItems = feed.maxItems || 15;
   const results: ParsedNewsItem[] = [];
 
@@ -58,7 +87,7 @@ export async function fetchFeedWithFallback(feed: NewsSource): Promise<ParsedNew
       title: item.title || '',
       link: item.link || item.guid || '',
       description: truncate(item.contentSnippet || item.content || '', 200),
-      image: extractImage(item.contentSnippet || item.content || null),
+      image: extractImage(item),
       pubDate: item.pubDate || null,
       category: feed.category,
       source: feed.source,
@@ -79,6 +108,7 @@ export async function fetchFeedWithFallback(feed: NewsSource): Promise<ParsedNew
           title: item.title || '',
           link: item.link || item.guid || '',
           description: truncate(item.contentSnippet || item.content || '', 200),
+          image: extractImage(item),
           pubDate: item.pubDate || null,
           category: feed.category,
           source: feed.source,

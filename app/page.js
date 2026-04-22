@@ -1,12 +1,13 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { RefreshCw, Moon, Sun, ExternalLink, Filter, Clock, Zap, Search, Bookmark, BookmarkCheck, ChevronUp, ChevronDown, X } from 'lucide-react';
+import { RefreshCw, Moon, Sun, ExternalLink, Filter, Clock, Zap, Search, Bookmark, BookmarkCheck, ChevronUp, ChevronDown, X, Settings2 } from 'lucide-react';
 import Link from 'next/link';
 
 const CATEGORIES = ['All', 'Startups', 'Consumer Tech', 'Innovation'];
 const AUTO_REFRESH_INTERVAL = 300000;
 const BOOKMARKS_KEY = 'technews-bookmarks';
+const SETTINGS_KEY = 'technews-settings';
 
 function loadBookmarks() {
   if (typeof window === 'undefined') return [];
@@ -23,10 +24,33 @@ function saveBookmarks(bookmarks) {
   localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(bookmarks));
 }
 
+function loadSettings() {
+  if (typeof window === 'undefined') return { darkMode: true, autoRefresh: true, refreshInterval: 300000 };
+  try {
+    const stored = localStorage.getItem(SETTINGS_KEY);
+    return stored ? JSON.parse(stored) : { darkMode: true, autoRefresh: true, refreshInterval: 300000 };
+  } catch {
+    return { darkMode: true, autoRefresh: true, refreshInterval: 300000 };
+  }
+}
+
+function saveSettings(settings) {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+}
+
+const REFRESH_OPTIONS = [
+  { label: 'Off', value: 0 },
+  { label: '1 min', value: 60000 },
+  { label: '5 min', value: 300000 },
+  { label: '10 min', value: 600000 },
+  { label: '30 min', value: 1800000 },
+];
+
 const CATEGORY_COLORS = {
-  Startups: { bg: 'bg-blue-950/50', text: 'text-blue-300', border: 'border-blue-100', lightBg: 'bg-blue-50', darkText: 'text-blue-700' },
-  'Consumer Tech': { bg: 'bg-purple-950/50', text: 'text-purple-300', border: 'border-purple-100', lightBg: 'bg-purple-50', darkText: 'text-purple-700' },
-  Innovation: { bg: 'bg-emerald-950/50', text: 'text-emerald-300', border: 'border-emerald-100', lightBg: 'bg-emerald-50', darkText: 'text-emerald-700' },
+  Startups: { bg: 'bg-blue-950/50', text: 'text-blue-300', border: 'border-blue-100' },
+  'Consumer Tech': { bg: 'bg-purple-950/50', text: 'text-purple-300', border: 'border-purple-100' },
+  Innovation: { bg: 'bg-emerald-950/50', text: 'text-emerald-300', border: 'border-emerald-100' },
 };
 
 const SOURCE_GRADIENTS = [
@@ -58,6 +82,19 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState('');
   const [bookmarks, setBookmarks] = useState([]);
   const [sortOrder, setSortOrder] = useState('newest');
+  const [refreshInterval, setRefreshInterval] = useState(300000);
+  const [showSettings, setShowSettings] = useState(false);
+
+  useEffect(() => {
+    const settings = loadSettings();
+    setDarkMode(settings.darkMode);
+    setAutoRefresh(settings.autoRefresh);
+    setRefreshInterval(settings.refreshInterval);
+  }, []);
+
+  useEffect(() => {
+    saveSettings({ darkMode, autoRefresh, refreshInterval });
+  }, [darkMode, autoRefresh, refreshInterval]);
 
   useEffect(() => {
     fetchNews();
@@ -75,13 +112,34 @@ export default function Home() {
     }
   }, [darkMode]);
 
+  const sources = [...new Set(news.map(n => n.source))].sort();
+
+  const [selectedSources, setSelectedSources] = useState(['All']);
+
+  function toggleSource(source) {
+    if (source === 'All') {
+      setSelectedSources(['All']);
+      return;
+    }
+    const withoutAll = selectedSources.filter(s => s !== 'All');
+    const newSelection = withoutAll.includes(source)
+      ? withoutAll.filter(s => s !== source)
+      : [...withoutAll, source];
+    if (newSelection.length === sources.length || newSelection.length === 0) {
+      setSelectedSources(['All']);
+    } else {
+      setSelectedSources(newSelection);
+    }
+  }
+
   useEffect(() => {
     if (!autoRefresh || loading) return;
+    if (refreshInterval <= 0) return;
     const interval = setInterval(async () => {
       await fetchNews(true);
-    }, AUTO_REFRESH_INTERVAL);
+    }, refreshInterval);
     return () => clearInterval(interval);
-  }, [autoRefresh, loading]);
+  }, [autoRefresh, loading, refreshInterval]);
 
   async function fetchNews(isRefresh = false) {
     setLoading(true);
@@ -115,9 +173,10 @@ export default function Home() {
 
   const filteredNews = news.filter(n => {
     const matchesCategory = category === 'All' || n.category === category;
-    if (!searchQuery.trim()) return matchesCategory;
+    const matchesSource = selectedSources.includes('All') || selectedSources.includes(n.source);
+    if (!searchQuery.trim()) return matchesCategory && matchesSource;
     const q = searchQuery.toLowerCase();
-    return matchesCategory && (n.title.toLowerCase().includes(q) || (n.description && n.description.toLowerCase().includes(q)));
+    return matchesCategory && matchesSource && (n.title.toLowerCase().includes(q) || (n.description && n.description.toLowerCase().includes(q)));
   });
 
   const sortedNews = [...filteredNews].sort((a, b) => {
@@ -155,6 +214,11 @@ export default function Home() {
     return formatDate(dateStr);
   }
 
+  function formatRefreshLabel(value) {
+    const opt = REFRESH_OPTIONS.find(o => o.value === value);
+    return opt ? opt.label : 'Custom';
+  }
+
   return (
     <div className={`min-h-screen ${darkMode ? 'bg-gray-950 text-gray-100' : 'bg-gradient-to-br from-slate-50 to-blue-50 text-gray-900'} transition-colors duration-300`}>
       {/* Header */}
@@ -162,13 +226,16 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-3">
             <h1 className="text-xl font-bold tracking-tight">Tech News Dashboard</h1>
-            {autoRefresh && (
+            {autoRefresh && refreshInterval > 0 && (
               <span className={`hidden sm:inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full ${darkMode ? 'bg-green-950/50 text-green-400' : 'bg-green-100 text-green-700'}`}>
-                <Zap size={10} className="animate-pulse" /> Auto-refresh ON
+                <Zap size={10} className="animate-pulse" /> Auto-refresh ON ({formatRefreshLabel(refreshInterval)})
               </span>
             )}
           </Link>
           <div className="flex items-center gap-2">
+            <button onClick={() => setShowSettings(!showSettings)} className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`} title="Settings">
+              <Settings2 size={18} />
+            </button>
             <Link href="/bookmarks" className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-100'} relative`} title="Bookmarks">
               <Bookmark size={18} />
               {bookmarks.length > 0 && (
@@ -177,8 +244,8 @@ export default function Home() {
                 </span>
               )}
             </Link>
-            <button onClick={() => setAutoRefresh(!autoRefresh)} className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-100'} ${autoRefresh ? (darkMode ? 'text-green-400' : 'text-green-600') : ''}`} title="Toggle auto-refresh">
-              <Zap size={18} className={autoRefresh ? 'animate-pulse' : ''} />
+            <button onClick={() => setAutoRefresh(!autoRefresh)} className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-100'} ${autoRefresh && refreshInterval > 0 ? (darkMode ? 'text-green-400' : 'text-green-600') : ''}`} title="Toggle auto-refresh">
+              <Zap size={18} className={(autoRefresh && refreshInterval > 0) ? 'animate-pulse' : ''} />
             </button>
             <button onClick={() => fetchNews(true)} disabled={loading} className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-100'} ${loading ? 'opacity-50 cursor-not-allowed' : ''}`} title="Refresh now">
               <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
@@ -189,6 +256,50 @@ export default function Home() {
           </div>
         </div>
       </header>
+
+      {/* Settings Dropdown */}
+      {showSettings && (
+        <div className={`fixed inset-0 z-40`} onClick={() => setShowSettings(false)}>
+          <div className={`absolute top-[68px] right-4 w-72 rounded-xl border shadow-lg p-5 ${darkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'}`} onClick={(e) => e.stopPropagation()}>
+            <h3 className={`text-sm font-bold mb-4 ${darkMode ? 'text-gray-100' : 'text-gray-900'}`}>Settings</h3>
+
+            <div className="space-y-4">
+              <div>
+                <label className={`text-xs font-medium mb-2 block ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Auto-refresh interval</label>
+                <select value={refreshInterval} onChange={(e) => setRefreshInterval(Number(e.target.value))} className={`w-full px-3 py-2 rounded-lg text-sm border outline-none ${darkMode ? 'bg-gray-800 border-gray-700 text-gray-100' : 'bg-gray-50 border-gray-200 text-gray-900'}`}>
+                  {REFRESH_OPTIONS.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <span className={`text-xs font-medium ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Dark mode</span>
+                <button onClick={() => setDarkMode(!darkMode)} className={`relative w-12 h-6 rounded-full transition-colors ${darkMode ? 'bg-blue-600' : 'bg-gray-300'}`}>
+                  <div className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-transform ${darkMode ? 'translate-x-6' : ''}`} />
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <span className={`text-xs font-medium ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Auto-refresh</span>
+                <button onClick={() => setAutoRefresh(!autoRefresh)} className={`relative w-12 h-6 rounded-full transition-colors ${autoRefresh && refreshInterval > 0 ? 'bg-blue-600' : 'bg-gray-300'}`}>
+                  <div className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-transform ${autoRefresh && refreshInterval > 0 ? 'translate-x-6' : ''}`} />
+                </button>
+              </div>
+
+              {refreshInterval > 0 && autoRefresh && (
+                <p className={`text-xs ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                  Next refresh in {formatRefreshLabel(refreshInterval)}
+                </p>
+              )}
+            </div>
+
+            <button onClick={() => setShowSettings(false)} className={`mt-4 w-full py-2 rounded-lg text-xs font-medium transition-colors ${darkMode ? 'bg-gray-800 hover:bg-gray-700 text-gray-300' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
+              Close
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 py-5">
@@ -218,32 +329,46 @@ export default function Home() {
           )}
         </div>
 
-        {/* Category Filter + Sort */}
-        <div className={`flex items-center justify-between flex-wrap gap-3 mb-5 ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-          <div className="flex items-center gap-2">
-            <Filter size={16} />
-            {CATEGORIES.map(cat => (
-              <button key={cat} onClick={() => setCategory(cat)} className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${
-                category === cat ? darkMode ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/30' : 'bg-gray-900 text-white shadow-lg shadow-gray-900/20' : darkMode ? 'bg-gray-800 hover:bg-gray-700 text-gray-400' : 'bg-white hover:bg-gray-100 text-gray-600 border border-gray-200'
+        {/* Category Filter */}
+        <div className={`flex items-center gap-2 mb-3 ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+          <Filter size={16} />
+          {CATEGORIES.map(cat => (
+            <button key={cat} onClick={() => setCategory(cat)} className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${
+              category === cat ? darkMode ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/30' : 'bg-gray-900 text-white shadow-lg shadow-gray-900/20' : darkMode ? 'bg-gray-800 hover:bg-gray-700 text-gray-400' : 'bg-white hover:bg-gray-100 text-gray-600 border border-gray-200'
+            }`}>
+              {cat}
+            </button>
+          ))}
+        </div>
+
+        {/* Source Filter */}
+        {sources.length > 0 && (
+          <div className={`flex items-center gap-2 flex-wrap mb-3 ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+            <Clock size={14} />
+            <span className={`text-xs ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>Source:</span>
+            {sources.map(source => (
+              <button key={source} onClick={() => toggleSource(source)} className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
+                selectedSources.includes('All') || selectedSources.includes(source) ? darkMode ? 'bg-blue-600/50 text-blue-200' : 'bg-gray-900/90 text-white shadow-sm' : darkMode ? 'bg-gray-800 hover:bg-gray-700 text-gray-400' : 'bg-white hover:bg-gray-100 text-gray-600 border border-gray-200'
               }`}>
-                {cat}
+                {source}
               </button>
             ))}
           </div>
-          <div className="flex items-center gap-2">
-            <Clock size={14} />
-            <span className={`text-xs ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>Sort:</span>
-            <button onClick={() => setSortOrder('newest')} className={`px-3 py-1 rounded-full text-xs font-medium transition-all flex items-center gap-1 ${
-              sortOrder === 'newest' ? darkMode ? 'bg-blue-600/50 text-blue-200' : 'bg-gray-900/90 text-white shadow-sm' : darkMode ? 'bg-gray-800 hover:bg-gray-700 text-gray-400' : 'bg-white hover:bg-gray-100 text-gray-600 border border-gray-200'
-            }`}>
-              <ChevronUp size={12} /> Newest
-            </button>
-            <button onClick={() => setSortOrder('oldest')} className={`px-3 py-1 rounded-full text-xs font-medium transition-all flex items-center gap-1 ${
-              sortOrder === 'oldest' ? darkMode ? 'bg-blue-600/50 text-blue-200' : 'bg-gray-900/90 text-white shadow-sm' : darkMode ? 'bg-gray-800 hover:bg-gray-700 text-gray-400' : 'bg-white hover:bg-gray-100 text-gray-600 border border-gray-200'
-            }`}>
-              <ChevronDown size={12} /> Oldest
-            </button>
-          </div>
+        )}
+
+        {/* Sort */}
+        <div className={`flex items-center gap-3 mb-5 ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+          <span className={`text-xs font-medium ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>Sort:</span>
+          <button onClick={() => setSortOrder('newest')} className={`px-3 py-1 rounded-full text-xs font-medium transition-all flex items-center gap-1 ${
+            sortOrder === 'newest' ? darkMode ? 'bg-blue-600/50 text-blue-200' : 'bg-gray-900/90 text-white shadow-sm' : darkMode ? 'bg-gray-800 hover:bg-gray-700 text-gray-400' : 'bg-white hover:bg-gray-100 text-gray-600 border border-gray-200'
+          }`}>
+            <ChevronUp size={12} /> Newest
+          </button>
+          <button onClick={() => setSortOrder('oldest')} className={`px-3 py-1 rounded-full text-xs font-medium transition-all flex items-center gap-1 ${
+            sortOrder === 'oldest' ? darkMode ? 'bg-blue-600/50 text-blue-200' : 'bg-gray-900/90 text-white shadow-sm' : darkMode ? 'bg-gray-800 hover:bg-gray-700 text-gray-400' : 'bg-white hover:bg-gray-100 text-gray-600 border border-gray-200'
+          }`}>
+            <ChevronDown size={12} /> Oldest
+          </button>
         </div>
 
         {/* Loading / Error States */}
@@ -271,6 +396,14 @@ export default function Home() {
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                 {summaryItems.map((item, idx) => (
                   <a key={`summary-${idx}`} href={item.link} target="_blank" rel="noopener noreferrer" className={`group flex flex-col ${darkMode ? 'hover:bg-gray-800/50' : 'hover:bg-gray-50'} rounded-lg p-3 transition-colors`}>
+                    <div className={`relative h-24 rounded-lg overflow-hidden mb-2 ${darkMode ? 'bg-gray-800' : 'bg-gray-100'}`}>
+                      {item.image ? (
+                        <img src={item.image} alt="" className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                      ) : null}
+                      {!item.image && (
+                        <div className={`absolute inset-0 bg-gradient-to-br ${getGradient(item.source)} opacity-80`} />
+                      )}
+                    </div>
                     <div className={`flex items-center gap-2 mb-1.5 text-xs ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>
                       <span className={`px-2 py-0.5 rounded-full font-medium ${CATEGORY_COLORS[item.category]?.bg || darkMode ? 'bg-blue-950/50' : 'bg-blue-50'} ${CATEGORY_COLORS[item.category]?.text || (darkMode ? 'text-blue-300' : 'text-blue-700')} border ${(CATEGORY_COLORS[item.category]?.border || 'border-blue-100')}`}>
                         {item.category}
@@ -299,7 +432,7 @@ export default function Home() {
         {/* News Cards */}
         {!loading && !error && sortedNews.length === 0 && (
           <div className="text-center py-16 opacity-40">
-            <p>{searchQuery ? 'No articles match your search.' : 'No news found for this category.'}</p>
+            <p>{searchQuery ? 'No articles match your search.' : 'No news found for this category or source.'}</p>
           </div>
         )}
 
@@ -308,13 +441,29 @@ export default function Home() {
             <a key={`main-${idx}`} href={item.link} target="_blank" rel="noopener noreferrer" className={`block rounded-2xl border transition-all hover:shadow-lg group overflow-hidden ${
               darkMode ? 'bg-gray-900/50 border-gray-800 hover:border-gray-700' : 'bg-white border-gray-200 hover:border-gray-300'
             }`}>
-              {/* Image */}
-              <div className="relative h-48 overflow-hidden">
-                {item.image ? (
-                  <img src={item.image} alt="" className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextElementSibling?.classList.remove('hidden'); }} />
-                ) : null}
-                <div className={`hidden absolute inset-0 bg-gradient-to-br ${getGradient(item.source)} opacity-80`} />
-              </div>
+               {/* Image */}
+              {item.source === 'GitHub Trending' ? (
+                <div className={`relative h-48 bg-gradient-to-br ${item.gradientClass || 'from-slate-500 to-gray-700'} flex items-center justify-center`}>
+                  <div className="text-center px-6">
+                    <h3 className="text-lg font-bold text-white mb-2 line-clamp-2">{item.title}</h3>
+                    {item.description && (
+                      <p className="text-sm text-white/80 line-clamp-1 mb-2">{item.description}</p>
+                    )}
+                    {item.language && (
+                      <span className="inline-block px-3 py-1 rounded-full text-xs font-medium bg-white/20 text-white backdrop-blur-sm">
+                        {item.language}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="relative h-48 overflow-hidden">
+                  {item.image ? (
+                    <img src={item.image} alt="" className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextElementSibling?.classList.remove('hidden'); }} />
+                  ) : null}
+                  <div className={`hidden absolute inset-0 bg-gradient-to-br ${getGradient(item.source)} opacity-80`} />
+                </div>
+              )}
 
               {/* Content */}
               <div className="p-5">

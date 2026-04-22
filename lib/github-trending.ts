@@ -9,6 +9,47 @@ function truncate(str: string, len: number): string {
   return str.slice(0, len) + '...';
 }
 
+const LANGUAGE_GRADIENTS: Record<string, string> = {
+  TypeScript: 'from-blue-600 to-indigo-700',
+  JavaScript: 'from-yellow-400 to-orange-500',
+  Python: 'from-green-500 to-teal-600',
+  Rust: 'from-red-600 to-orange-700',
+  Go: 'from-cyan-500 to-blue-600',
+  Java: 'from-purple-500 to-pink-600',
+  C: 'from-gray-600 to-gray-800',
+  'C++': 'from-gray-700 to-slate-800',
+  HTML: 'from-orange-400 to-red-500',
+  CSS: 'from-blue-400 to-purple-500',
+  Shell: 'from-green-600 to-emerald-700',
+  Vue: 'from-lime-500 to-green-600',
+  Svelte: 'from-red-500 to-orange-600',
+  Dart: 'from-cyan-400 to-blue-500',
+};
+
+function getLanguageGradient(lang: string | null): string {
+  if (!lang) return 'from-slate-500 to-gray-700';
+  const normalized = lang.trim();
+  for (const [key, gradient] of Object.entries(LANGUAGE_GRADIENTS)) {
+    if (normalized.toLowerCase().includes(key.toLowerCase())) return gradient;
+  }
+  return 'from-slate-500 to-gray-700';
+}
+
+function extractLanguage(html: string): string | null {
+  const match = html.match(/<span[^>]*class="[^"]*language[^"]*"[^>]*>([\s\S]*?)<\/span>/);
+  if (match) return match[1].trim();
+  const fallbackMatch = html.match(/<span[^>]*class="[^"]*stretched-card[^"]*"[^>]*>[\s\S]*?<a[^>]*>[^<]+<\/a>[\s\S]*?<span[^>]*>([\w\s]+)/);
+  if (fallbackMatch) return fallbackMatch[1].trim();
+  const simpleMatch = html.match(/([\w\s]+)\s*$/m);
+  if (simpleMatch) {
+    const potentialLang = simpleMatch[1].trim();
+    for (const key of Object.keys(LANGUAGE_GRADIENTS)) {
+      if (potentialLang.toLowerCase().includes(key.toLowerCase())) return potentialLang;
+    }
+  }
+  return null;
+}
+
 async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -65,11 +106,16 @@ export async function fetchGitHubTrending(): Promise<ParsedNewsItem[]> {
         finalDesc = starInfo;
       }
 
+      const lang = extractLanguage(articleHtml);
+      const gradient = getLanguageGradient(lang);
+
       results.push({
         title: repoName,
         link: fullLink,
         description: truncate(finalDesc, 200),
         image: null,
+        language: lang,
+        gradientClass: gradient,
         pubDate: new Date().toISOString(),
         category: 'Innovation',
         source: 'GitHub Trending',
