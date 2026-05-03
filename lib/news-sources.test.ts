@@ -17,7 +17,7 @@ describe('news-sources', () => {
     });
 
     it('feeds have valid categories', () => {
-      const validCategories = ['Startups', 'Consumer Tech', 'Innovation', 'AI'];
+      const validCategories = ['Startups', 'Consumer Tech', 'Innovation', 'AI', 'Open Source'];
       for (const feed of RSS_FEEDS) {
         expect(validCategories).toContain(feed.category);
       }

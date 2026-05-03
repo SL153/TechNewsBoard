@@ -51,9 +51,9 @@ export default function BookmarksPage() {
   const sortedBookmarks = [...bookmarks].sort((a, b) => new Date(b.bookmarkedAt || 0) - new Date(a.bookmarkedAt || 0));
 
   return (
-    <div className={`min-h-screen ${darkMode ? 'bg-gray-950 text-gray-100' : 'bg-gradient-to-br from-slate-50 to-blue-50 text-gray-900'} transition-colors duration-300`}>
+    <div className="min-h-screen bg-background text-foreground transition-[background-color,color] duration-300" style={{ backgroundImage: darkMode ? undefined : 'linear-gradient(135deg, #f9fafb, #ebf5ff)' }}>
       {/* Header */}
-      <header className={`sticky top-0 z-50 border-b backdrop-blur-xl ${darkMode ? 'bg-gray-950/80 border-gray-800' : 'bg-white/70 border-gray-200'}`}>
+      <header className="sticky top-0 z-50 border-b backdrop-blur-xl bg-card/70 dark:bg-background/80 border-border">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-3">
             <ArrowLeft size={18} />
@@ -63,14 +63,14 @@ export default function BookmarksPage() {
             {bookmarks.length > 0 && (
               <button
                 onClick={clearAll}
-                className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${darkMode ? 'bg-red-950/30 text-red-400 hover:bg-red-950/50' : 'bg-red-50 text-red-600 hover:bg-red-100 border border-red-200'}`}
+                className="text-xs px-3 py-1.5 rounded-lg transition-colors bg-destructive/10 dark:bg-destructive/20 text-destructive hover:bg-destructive/20 dark:hover:bg-destructive/30 border-border dark:border-destructive/60"
               >
                 Clear All ({bookmarks.length})
               </button>
             )}
             <button
               onClick={() => setDarkMode(!darkMode)}
-              className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`}
+              className="p-2 rounded-lg transition-colors hover:bg-muted dark:hover:bg-accent"
               title="Toggle theme"
             >
               {darkMode ? <Sun size={18} /> : <Moon size={18} />}
@@ -85,7 +85,7 @@ export default function BookmarksPage() {
           <div className="text-center py-20 opacity-40">
             <BookmarkCheck size={48} className="mx-auto mb-3 opacity-30" />
             <p className="text-sm mb-1">No bookmarks yet</p>
-            <Link href="/" className={`text-xs underline ${darkMode ? 'text-blue-400' : 'text-blue-600'}`}>Browse articles to bookmark them</Link>
+            <Link href="/" className="text-xs underline dark:text-blue-300 text-blue-600">Browse articles to bookmark them</Link>
           </div>
         )}
 
@@ -96,40 +96,34 @@ export default function BookmarksPage() {
               href={item.link}
               target="_blank"
               rel="noopener noreferrer"
-              className={`block p-4 rounded-xl border transition-all hover:shadow-md group ${
-                darkMode
-                  ? 'bg-gray-900/50 border-gray-800 hover:border-gray-700 hover:bg-gray-900'
-                  : 'bg-white border-gray-200 hover:border-gray-300 hover:shadow-lg'
-              }`}
+              className="block p-4 rounded-xl border transition-all hover:shadow-md group bg-card dark:bg-card border-border dark:border-border hover:shadow-lg"
             >
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1 min-w-0">
-                  <div className={`flex items-center gap-2 mb-1.5 text-xs ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                    <span className={`px-2 py-0.5 rounded-full font-medium ${
-                      darkMode ? 'bg-blue-950/50 text-blue-300' : 'bg-blue-50 text-blue-700 border border-blue-100'
-                    }`}>{item.category}</span>
-                    <span className={`w-1 h-1 rounded-full ${darkMode ? 'bg-gray-600' : 'bg-gray-300'}`} />
+                  <div className="flex items-center gap-2 mb-1.5 text-xs text-muted-foreground">
+                    <span className={`px-2 py-0.5 rounded-full font-medium ${darkMode ? 'bg-blue-700/15 text-blue-300' : 'bg-blue-50 text-blue-600 border-blue-200'}`}>{item.category}</span>
+                    <span className="w-1 h-1 rounded-full bg-muted dark:bg-accent" />
                     <span>{item.source}</span>
                   </div>
                   <h2 className="text-sm font-semibold leading-snug mb-1.5 group-hover:underline truncate">{item.title}</h2>
                   {item.description && (
-                    <p className={`text-xs leading-relaxed ${darkMode ? 'text-gray-500' : 'text-gray-500'} line-clamp-2`}>
+                    <p className="text-xs leading-relaxed text-muted-foreground line-clamp-2">
                       {item.description}
                     </p>
                   )}
                 </div>
                 <button
                   onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeBookmark(item.link); }}
-                  className={`p-1.5 rounded-lg transition-colors flex-shrink-0 ${darkMode ? 'text-blue-400 hover:bg-gray-800' : 'text-blue-600 hover:bg-blue-50'}`}
+                  className="p-1.5 rounded-lg transition-colors flex-shrink-0 dark:text-blue-300 dark:hover:bg-accent text-blue-600 hover:bg-blue-50"
                   title="Remove bookmark"
                 >
                   <BookmarkCheck size={16} />
                 </button>
               </div>
-              <div className={`flex items-center gap-1 mt-2 text-xs ${darkMode ? 'text-gray-600' : 'text-gray-400'}`}>
+              <div className="flex items-center gap-1 mt-2 text-xs text-muted-foreground">
                 <Clock size={12} />
                 {item.pubDate ? new Date(item.pubDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}
-                <span className={`w-1 h-1 rounded-full ${darkMode ? 'bg-gray-600' : 'bg-gray-300'}`} />
+                <span className="w-1 h-1 rounded-full bg-muted dark:bg-accent" />
                 Bookmarked: {new Date(item.bookmarkedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
               </div>
             </a>
@@ -137,7 +131,7 @@ export default function BookmarksPage() {
         </div>
 
         {sortedBookmarks.length > 0 && (
-          <div className={`mt-6 text-center text-xs ${darkMode ? 'text-gray-700' : 'text-gray-400'}`}>
+          <div className="mt-6 text-center text-xs text-muted-foreground">
             {sortedBookmarks.length} bookmarked articles
           </div>
         )}

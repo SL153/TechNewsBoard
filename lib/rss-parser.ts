@@ -76,7 +76,7 @@ async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Respons
 async function parseRSSXML(xmlText: string): Promise<any> {
   const items: any[] = [];
 
-  // Extract items using regex parsing (fallback when DOMParser unavailable)
+  // Try RSS 2.0 format first (<item> tags)
   const itemRegex = /<item>([\s\S]*?)<\/item>/g;
   let match;
   while ((match = itemRegex.exec(xmlText)) !== null) {
@@ -104,6 +104,38 @@ async function parseRSSXML(xmlText: string): Promise<any> {
       'media:thumbnail': mediaThumbnailMatch?.[1] || null,
       'media:content': mediaContentMatches.length > 0 ? mediaContentMatches.map(m => ({ url: m[1] })) : null,
     });
+  }
+
+  // If no RSS items found, try Atom format (<entry> tags)
+  if (items.length === 0) {
+    const entryRegex = /<entry>([\s\S]*?)<\/entry>/g;
+    while ((match = entryRegex.exec(xmlText)) !== null) {
+      const entryXml = match[1];
+
+      const titleMatch = entryXml.match(/<title[^>]*>([\s\S]*?)<\/title>/);
+      // Atom uses <link rel="alternate" href="..."/> (self-closing) or <link href="..."/>
+      const linkMatch = entryXml.match(/<link[^>]*rel="alternate"[^>]*href="([^"]+)"/);
+      const linkFallback = entryXml.match(/<link[^>]*href="([^"]+)"/);
+      const idMatch = entryXml.match(/<id>([\s\S]*?)<\/id>/);
+      const summaryMatch = entryXml.match(/<summary[^>]*>([\s\S]*?)<\/summary>/);
+      const contentMatch = entryXml.match(/<content[^>]*>([\s\S]*?)<\/content>/);
+      const publishedMatch = entryXml.match(/<published>([\s\S]*?)<\/published>/);
+      const updatedMatch = entryXml.match(/<updated>([\s\S]*?)<\/updated>/);
+
+      const mediaThumbnailMatch = entryXml.match(/<media:thumbnail url="([^"]+)"/);
+
+      items.push({
+        title: stripCDATA(titleMatch?.[1]?.trim() || ''),
+        link: stripCDATA(linkMatch?.[1]?.trim() || linkFallback?.[1]?.trim() || idMatch?.[1]?.trim() || ''),
+        guid: stripCDATA(idMatch?.[1]?.trim() || ''),
+        contentSnippet: stripCDATA(summaryMatch?.[1]?.trim() || ''),
+        content: stripCDATA(contentMatch?.[1]?.trim() || summaryMatch?.[1]?.trim() || ''),
+        pubDate: publishedMatch?.[1]?.trim() || updatedMatch?.[1]?.trim() || null,
+        enclosure: null,
+        'media:thumbnail': mediaThumbnailMatch?.[1] || null,
+        'media:content': null,
+      });
+    }
   }
 
   return { items };

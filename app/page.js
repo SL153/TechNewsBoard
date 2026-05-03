@@ -1,8 +1,15 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, Moon, Sun, ExternalLink, Clock, Zap, Search, Bookmark, BookmarkCheck, Settings, ChevronDown, X, ArrowUpRight } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { RefreshCw, Moon, Sun, ExternalLink, Clock, Zap, Search, Bookmark, BookmarkCheck, Settings, ChevronDown, X, ArrowUpRight, MessageCircle, Rss, Bell, Check } from 'lucide-react';
 import Link from 'next/link';
+import ChatSidebar from './components/ChatSidebar';
+import ChatProviderSettings from './components/ChatProviderSettings';
+import FeedManager from './components/FeedManager';
+import DataImportExport from './components/DataImportExport';
+import NotificationSettings from './components/NotificationSettings';
+import * as NotificationStore from '@/lib/notification-store';
+import { getEnabledSources } from '@/lib/feed-store';
 
 const CATEGORY_MAP = ['All', 'Startups', 'Consumer Tech', 'AI', 'Innovation', 'Open Source'];
 const DAY_RANGES = [
@@ -10,7 +17,8 @@ const DAY_RANGES = [
   { label: '3 Days', days: 3 },
   { label: '7 Days', days: 7 },
   { label: '14 Days', days: 14 },
-  { label: 'All Time', days: Infinity },
+  { label: '30 Days', days: 30 },
+  { label: '90 Days', days: 90 },
 ];
 const REFRESH_INTERVALS = [
   { label: 'Off', value: 0 },
@@ -66,13 +74,30 @@ export default function Home() {
   const [autoRefreshInterval, setAutoRefreshInterval] = useState(1800000);
   const [lastFetchTime, setLastFetchTime] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
+  const searchTimeoutRef = useRef(null);
   const [bookmarks, setBookmarks] = useState([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sourceFilterOpen, setSourceFilterOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(true);
+  const [chatProvider, setChatProvider] = useState(null);
+  const [feedManagerOpen, setFeedManagerOpen] = useState(false);
+  const [selectedArticles, setSelectedArticles] = useState(new Set());
+  const [focusArticle, setFocusArticle] = useState(null);
+  const [compareArticles, setCompareArticles] = useState(null);
+  const [chatLayoutMode, setChatLayoutMode] = useState('split');
+
+  useEffect(() => {
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    searchTimeoutRef.current = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+    }, 300);
+    return () => clearTimeout(searchTimeoutRef.current);
+  }, [searchQuery]);
 
   useEffect(() => {
     fetchNews();
-  }, []);
+  }, [dayRange, selectedCategories, debouncedSearchQuery]);
 
   useEffect(() => {
     setSelectedCategories(new Set(['All']));
@@ -114,12 +139,49 @@ export default function Home() {
     setLoading(true);
     setError(null);
     try {
-      const params = isRefresh ? '?refresh=true' : '';
-      const res = await fetch(`/api/news${params}`);
+      const params = new URLSearchParams();
+      
+      if (isRefresh) params.set('refresh', 'true');
+      
+      if (dayRange < Infinity && dayRange !== undefined) {
+        params.set('days', String(dayRange));
+      }
+      
+      const cats = selectedCategories || new Set(['All']);
+      if (!cats.has('All')) {
+        [...cats].forEach(cat => params.append('category', cat));
+      }
+      
+      if (searchQuery.trim()) {
+        params.set('q', searchQuery.trim());
+      }
+
+      // Pass enabled feed sources so the server knows which feeds to fetch
+      const enabledSources = getEnabledSources();
+      const sourceNames = enabledSources.map(s => s.source);
+      params.set('feeds', JSON.stringify(sourceNames));
+      
+      const queryString = params.toString();
+      const url = `/api/news${queryString ? '?' + queryString : ''}`;
+
+      const res = await fetch(url, { cache: 'no-store' });
       if (!res.ok) throw new Error('Failed to fetch news');
       const data = await res.json();
       setNews(data);
       setLastFetchTime(new Date());
+
+      // Check for notification matches
+      try {
+        const config = NotificationStore.loadNotificationConfig();
+        if (config.enabled && ('Notification' in window)) {
+          const result = NotificationStore.checkArticleMatches(data);
+          if (result.matchedArticles.length > 0) {
+            NotificationStore.showNotifications(result.matchedArticles);
+          }
+        }
+      } catch {
+        // Silently fail notification checks
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -158,6 +220,15 @@ export default function Home() {
     });
   }
 
+  function handleResetFilters() {
+    setSelectedCategories(new Set(['All']));
+    setSelectedSources(new Set());
+    setDayRange(3);
+    setSortBy('newest');
+    setSearchQuery('');
+    fetchNews();
+  }
+
   function toggleBookmark(article) {
     const key = article.link || article.title;
     const exists = bookmarks.some(b => b.link === key);
@@ -178,11 +249,6 @@ export default function Home() {
   const allSources = [...new Set(news.map(n => n.source))].sort();
 
   const filteredNews = news.filter(n => {
-    if (dayRange !== Infinity) {
-      const pubDate = new Date(n.pubDate || 0);
-      const cutoff = new Date(Date.now() - dayRange * 86400000);
-      if (pubDate < cutoff) return false;
-    }
     const cats = selectedCategories || new Set(['All']);
     const sources = selectedSources || new Set();
     if (!cats.has('All') && !cats.has(n.category)) return false;
@@ -232,15 +298,44 @@ export default function Home() {
     return url?.includes('www.google.com/s2/favicons') ?? false;
   }
 
+  function toggleArticleSelection(item) {
+    const key = item.link || item.title;
+    setSelectedArticles(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  function handleAskAbout(item) {
+    setChatOpen(true);
+    setFocusArticle({ title: item.title, source: item.source, description: item.description, link: item.link });
+  }
+
+  function handleCompareSelected() {
+    if (selectedArticles.size < 2) return;
+    const selected = sortedNews.filter(item => {
+      const key = item.link || item.title;
+      return selectedArticles.has(key);
+    });
+    setChatOpen(true);
+    setCompareArticles(selected.map(a => ({ title: a.title, source: a.source, category: a.category, description: a.description, link: a.link })));
+  }
+
+  function handleLayoutToggle() {
+    setChatLayoutMode(prev => prev === 'overlay' ? 'split' : 'overlay');
+  }
+
   return (
-    <div className={`min-h-screen ${darkMode ? 'bg-gray-950 text-gray-100' : 'bg-gradient-to-br from-slate-50 to-blue-50 text-gray-900'} transition-[background-color,color] duration-300`}>
+    <div className="h-screen flex flex-col bg-background text-foreground transition-[background-color,color] duration-300" style={{ backgroundImage: darkMode ? undefined : 'linear-gradient(135deg, #f9fafb, #ebf5ff)' }}>
       {/* Header */}
-      <header className={`sticky top-0 z-50 border-b backdrop-blur-xl ${darkMode ? 'bg-gray-950/80 border-gray-800' : 'bg-white/70 border-gray-200'}`}>
+      <header className="flex-shrink-0 z-40 border-b backdrop-blur-xl bg-card/70 dark:bg-background/80 border-border">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-3">
             <h1 className="text-xl font-bold tracking-tight">Tech News Dashboard</h1>
             {autoRefreshInterval > 0 && (
-              <span className={`hidden sm:inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full ${darkMode ? 'bg-green-950/50 text-green-400' : 'bg-green-100 text-green-700'}`}>
+                <span className="hidden sm:inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-800/30 text-green-800 dark:text-green-100">
                 <Zap size={10} className="animate-pulse" /> Auto-refresh ON
               </span>
             )}
@@ -248,20 +343,20 @@ export default function Home() {
           <div className="flex items-center gap-2">
             <button
               onClick={() => setSettingsOpen(!settingsOpen)}
-              className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-100'} ${settingsOpen ? (darkMode ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-900') : ''}`}
+              className="p-2 rounded-lg transition-colors hover:bg-muted dark:hover:bg-accent"
               aria-label="Settings"
             >
               <Settings size={18} />
             </button>
             {autoRefreshInterval > 0 && (
-              <span className={`hidden md:inline text-xs px-2 py-0.5 rounded-full ${darkMode ? 'bg-gray-800 text-gray-400' : 'bg-gray-100 text-gray-600'}`}>
+                <span className="hidden md:inline text-xs px-2 py-0.5 rounded-full bg-secondary dark:bg-accent text-muted-foreground">
                 {REFRESH_INTERVALS.find(i => i.value === autoRefreshInterval)?.label}
               </span>
             )}
-            <Link href="/bookmarks" className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-100'} relative`} aria-label="Bookmarks">
+            <Link href="/bookmarks" className="p-2 rounded-lg transition-colors hover:bg-muted dark:hover:bg-accent relative" aria-label="Bookmarks">
               <Bookmark size={18} />
               {bookmarks.length > 0 && (
-                <span className={`absolute -top-0.5 -right-0.5 text-xs w-4 h-4 rounded-full flex items-center justify-center font-bold ${darkMode ? 'bg-blue-600 text-white' : 'bg-blue-600 text-white'}`}>
+                <span className="absolute -top-0.5 -right-0.5 text-xs w-4 h-4 rounded-full flex items-center justify-center font-bold bg-blue-600 text-white">
                   {bookmarks.length}
                 </span>
               )}
@@ -270,14 +365,14 @@ export default function Home() {
               onClick={() => fetchNews(true)}
               disabled={loading}
               aria-label="Refresh now"
-              className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-100'} ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
+              className="p-2 rounded-lg transition-colors hover:bg-muted dark:hover:bg-accent"
             >
               <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
             </button>
             <button
               onClick={() => setDarkMode(!darkMode)}
               aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
-              className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`}
+              className="p-2 rounded-lg transition-colors hover:bg-muted dark:hover:bg-accent"
             >
               {darkMode ? <Sun size={18} /> : <Moon size={18} />}
             </button>
@@ -286,11 +381,11 @@ export default function Home() {
 
         {/* Settings Panel */}
         {settingsOpen && (
-          <div className={`border-t ${darkMode ? 'border-gray-800 bg-gray-950/90' : 'border-gray-200 bg-white/90'} backdrop-blur-xl`}>
+          <div className="border-t border-border dark:border-border bg-card/90 dark:bg-background/90 backdrop-blur-xl">
             <div className="max-w-6xl mx-auto px-4 py-3">
               <div className="flex items-center justify-between mb-2">
-                <span className={`text-xs font-medium ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Auto-refresh interval</span>
-                <button onClick={() => setSettingsOpen(false)} aria-label="Close settings" className={`p-1 rounded ${darkMode ? 'hover:bg-gray-800 text-gray-600' : 'hover:bg-gray-100 text-gray-400'}`}>
+                <span className="text-xs font-medium text-muted-foreground">Auto-refresh interval</span>
+                  <button onClick={() => setSettingsOpen(false)} aria-label="Close settings" className="p-1 rounded hover:bg-muted dark:hover:bg-accent text-muted-foreground">
                   <X size={14} />
                 </button>
               </div>
@@ -302,40 +397,73 @@ export default function Home() {
                     touch-action="manipulation"
                     className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
                       autoRefreshInterval === interval.value
-                        ? darkMode ? 'bg-blue-600 text-white' : 'bg-gray-900 text-white'
-                        : darkMode ? 'bg-gray-800 hover:bg-gray-700 text-gray-400' : 'bg-gray-100 hover:bg-gray-200 text-gray-600 border border-gray-200'
+                        ? 'bg-blue-600 text-white dark:bg-blue-700'
+                        : 'bg-secondary hover:bg-muted text-muted-foreground border-border dark:bg-accent dark:hover:bg-muted/80 dark:text-muted-foreground dark:border-border'
                     }`}
                   >
                     {interval.label}
                   </button>
                 ))}
               </div>
+
+              {/* Manage Feeds Button */}
+              <div className="mt-4 pt-3 border-t border-border flex items-center justify-between">
+                <button
+                  onClick={() => setFeedManagerOpen(!feedManagerOpen)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${feedManagerOpen ? 'bg-blue-600 text-white dark:bg-blue-700' : 'bg-secondary hover:bg-muted text-muted-foreground border-border dark:bg-accent dark:hover:bg-muted/80 dark:text-muted-foreground dark:border-border'}`}
+                >
+                  <Rss size={14} className="mr-1 inline" />
+                  Manage Feeds
+                </button>
+              </div>
+
+              {/* Feed Manager */}
+              {feedManagerOpen && (
+                <div className="mt-3 pt-2 border-t border-border">
+                  <FeedManager darkMode={darkMode} onFeedsChange={() => fetchNews()} />
+                </div>
+              )}
+
+              {/* Data Import/Export */}
+              <div className="mt-4 pt-3 border-t border-border">
+                <DataImportExport darkMode={darkMode} />
+              </div>
+
+              {/* Notification Settings */}
+              <div className="mt-4 pt-3 border-t border-border">
+                <NotificationSettings darkMode={darkMode} />
+              </div>
+
+              {/* Chat Provider Settings */}
+              <div className="mt-4 pt-3 border-t border-border">
+                <ChatProviderSettings darkMode={darkMode} onProviderChange={setChatProvider} />
+              </div>
             </div>
           </div>
         )}
       </header>
 
+      {/* Content area */}
+      <div className={`flex-1 min-h-0 ${chatLayoutMode === 'split' ? 'flex' : ''}`}>
       {/* Main Content */}
-      <main className="max-w-6xl mx-auto px-4 py-5">
+      <main className={`${chatLayoutMode === 'split' ? 'flex-1 min-w-0' : ''} overflow-y-auto px-4 py-5`}>
+        <div className="max-w-6xl mx-auto">
         {/* Search Bar */}
-        <div className={`relative mb-4`}>
-          <Search size={16} className={`absolute left-3 top-1/2 -translate-y-1/2 ${darkMode ? 'text-gray-600' : 'text-gray-400'}`} />
+        <div className="relative mb-4">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground dark:text-muted-foreground" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             aria-label="Search articles by title or description"
             placeholder="Search articles by title or description..."
-            className={`w-full pl-9 pr-4 py-2.5 rounded-xl text-sm border transition-[border-color,background-color,color] ${
-              darkMode
-                ? 'bg-gray-900 border-gray-800 text-gray-100 placeholder:text-gray-600 focus:border-blue-700'
-                : 'bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 focus:border-gray-400'
-            } focus-visible:ring-2 focus-visible:ring-blue-500`}
+            className="w-full pl-9 pr-4 py-2.5 rounded-xl text-sm border transition-[border-color,background-color,color] bg-card dark:bg-card border-border dark:border-border text-foreground placeholder:text-muted-foreground focus-visible:ring-2"
+            style={{ '--tw-ring-color': darkMode ? 'var(--primary-700)' : 'var(--primary-600)' }}
           />
           {searchQuery && (
             <button
               onClick={() => setSearchQuery('')}
-              className={`absolute right-3 top-1/2 -translate-y-1/2 text-xs px-2 py-0.5 rounded-md ${darkMode ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600'}`}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-xs px-2 py-0.5 rounded-md text-muted-foreground hover:text-foreground"
             >
               Clear
             </button>
@@ -345,15 +473,15 @@ export default function Home() {
         {/* Filters */}
         <div className="flex flex-wrap items-center gap-2 mb-5">
           {/* Categories */}
-          <span className={`text-xs ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>Categories:</span>
+          <span className="text-xs text-muted-foreground">Categories:</span>
           {CATEGORY_MAP.map(cat => (
             <button
               key={cat}
               onClick={() => toggleCategory(cat)}
               className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
                 (selectedCategories || new Set(['All'])).has(cat)
-                  ? darkMode ? 'bg-blue-600 text-white' : 'bg-gray-900 text-white'
-                  : darkMode ? 'bg-gray-800 hover:bg-gray-700 text-gray-400 border border-gray-700' : 'bg-white hover:bg-gray-100 text-gray-600 border border-gray-200'
+                  ? 'bg-blue-600 text-white dark:bg-blue-700'
+                  : 'bg-secondary hover:bg-muted text-muted-foreground border-border dark:bg-accent dark:hover:bg-muted/80 dark:text-muted-foreground dark:border-border'
               }`}
               touch-action="manipulation"
             >
@@ -362,7 +490,7 @@ export default function Home() {
           ))}
 
           {/* Day Range */}
-          <span className={`text-xs ml-3 ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>Time:</span>
+          <span className="text-xs ml-3 text-muted-foreground">Time:</span>
           {DAY_RANGES.map(range => (
             <button
               key={range.label}
@@ -370,8 +498,8 @@ export default function Home() {
               touch-action="manipulation"
               className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
                 dayRange === range.days
-                  ? darkMode ? 'bg-blue-600 text-white' : 'bg-gray-900 text-white'
-                  : darkMode ? 'bg-gray-800 hover:bg-gray-700 text-gray-400 border border-gray-700' : 'bg-white hover:bg-gray-100 text-gray-600 border border-gray-200'
+                  ? 'bg-blue-600 text-white dark:bg-blue-700'
+                  : 'bg-secondary hover:bg-muted text-muted-foreground border-border dark:bg-accent dark:hover:bg-muted/80 dark:text-muted-foreground dark:border-border'
               }`}
             >
               {range.label}
@@ -379,15 +507,15 @@ export default function Home() {
           ))}
 
           {/* Sort */}
-          <span className={`text-xs ml-3 ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>Sort:</span>
+          <span className="text-xs ml-3 text-muted-foreground">Sort:</span>
           <div className="flex gap-1">
             <button
               onClick={() => setSortBy('newest')}
               touch-action="manipulation"
               className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
                 sortBy === 'newest'
-                  ? darkMode ? 'bg-blue-600 text-white' : 'bg-gray-900 text-white'
-                  : darkMode ? 'bg-gray-800 hover:bg-gray-700 text-gray-400 border border-gray-700' : 'bg-white hover:bg-gray-100 text-gray-600 border border-gray-200'
+                  ? 'bg-blue-600 text-white dark:bg-blue-700'
+                  : 'bg-secondary hover:bg-muted text-muted-foreground border-border dark:bg-accent dark:hover:bg-muted/80 dark:text-muted-foreground dark:border-border'
               }`}
             >
               Newest
@@ -397,8 +525,8 @@ export default function Home() {
               touch-action="manipulation"
               className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
                 sortBy === 'oldest'
-                  ? darkMode ? 'bg-blue-600 text-white' : 'bg-gray-900 text-white'
-                  : darkMode ? 'bg-gray-800 hover:bg-gray-700 text-gray-400 border border-gray-700' : 'bg-white hover:bg-gray-100 text-gray-600 border border-gray-200'
+                  ? 'bg-blue-600 text-white dark:bg-blue-700'
+                  : 'bg-secondary hover:bg-muted text-muted-foreground border-border dark:bg-accent dark:hover:bg-muted/80 dark:text-muted-foreground dark:border-border'
               }`}
             >
               Oldest
@@ -406,7 +534,7 @@ export default function Home() {
           </div>
 
           {/* Source Filter */}
-          <span className={`text-xs ml-3 ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>Source:</span>
+          <span className="text-xs ml-3 text-muted-foreground">Source:</span>
           {allSources.length > 0 && (
             <div className="relative">
               <button
@@ -414,10 +542,10 @@ export default function Home() {
                 touch-action="manipulation"
                 className={`px-3 py-1 rounded-full text-xs font-medium transition-all flex items-center gap-1 ${
                   sourceFilterOpen
-                    ? darkMode ? 'bg-gray-800 text-white border border-gray-700' : 'bg-gray-100 text-gray-900 border border-gray-200'
+                    ? 'bg-secondary dark:bg-accent text-foreground border-border'
                     : selectedSources && selectedSources.size > 0
-                      ? darkMode ? 'bg-blue-600/30 text-blue-400 border border-blue-800' : 'bg-blue-50 text-blue-700 border border-blue-200'
-                      : darkMode ? 'bg-gray-800 hover:bg-gray-700 text-gray-400 border border-gray-700' : 'bg-white hover:bg-gray-100 text-gray-600 border border-gray-200'
+                      ? 'bg-blue-600/15 text-blue-600 border-blue-200 dark:bg-blue-700/15 dark:text-blue-300 dark:border-blue-700'
+                      : 'bg-secondary hover:bg-muted text-muted-foreground border-border dark:bg-accent dark:hover:bg-muted/80 dark:text-muted-foreground dark:border-border'
                 }`}
               >
                 {(selectedSources?.size ?? 0) > 0 ? (
@@ -428,7 +556,7 @@ export default function Home() {
               {sourceFilterOpen && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setSourceFilterOpen(false)} />
-                  <div className={`absolute top-full left-0 mt-1 z-50 p-2 rounded-xl border shadow-lg min-w-[200px] max-h-[300px] overflow-y-auto ${darkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'}`}>
+                  <div className="absolute top-full left-0 mt-1 z-50 p-2 rounded-xl border shadow-lg min-w-[200px] max-h-[300px] overflow-y-auto bg-popover dark:bg-card border-border">
                     {allSources.map(source => (
                       <button
                         key={source}
@@ -436,14 +564,14 @@ export default function Home() {
                         touch-action="manipulation"
                         className={`w-full text-left px-3 py-1.5 rounded-lg text-xs transition-colors flex items-center gap-2 ${
                           ((selectedSources || new Set()).has(source))
-                            ? darkMode ? 'bg-blue-900/30 text-blue-400' : 'bg-blue-50 text-blue-700'
-                            : darkMode ? 'hover:bg-gray-800 text-gray-400' : 'hover:bg-gray-100 text-gray-600'
+                            ? 'bg-blue-600/15 dark:bg-blue-700/15 text-blue-600 dark:text-blue-300'
+                            : 'hover:bg-muted dark:hover:bg-accent text-muted-foreground dark:text-muted-foreground'
                         }`}
                       >
                         <span className={`w-3 h-3 rounded border flex items-center justify-center flex-shrink-0 ${
                           (selectedSources || new Set()).has(source)
-                            ? (darkMode ? 'bg-blue-600 border-blue-600' : 'bg-blue-600 border-blue-600')
-                            : (darkMode ? 'border-gray-600' : 'border-gray-300')
+                            ? 'bg-blue-600 dark:bg-blue-700 border-blue-600 dark:border-blue-700'
+                            : 'border-border dark:border-border'
                         }`}>
                           {(selectedSources || new Set()).has(source) && <X size={8} className="text-white" />}
                         </span>
@@ -458,9 +586,19 @@ export default function Home() {
 
           {/* Active filter count */}
           {(selectedSources && selectedSources.size > 0 || dayRange < Infinity || !selectedCategories || !selectedCategories.has('All') || searchQuery.trim()) && (
-            <span className={`text-xs ${darkMode ? 'text-gray-600' : 'text-gray-400'}`}>
+            <span className="text-xs text-muted-foreground">
               ({sortedNews.length} results)
             </span>
+          )}
+
+          {/* Reset button */}
+          {((selectedSources?.size ?? 0) > 0 || dayRange !== 3 || !selectedCategories?.has('All') || searchQuery.trim() || sortBy !== 'newest') && (
+            <button
+              onClick={handleResetFilters}
+              className="px-2 py-1 rounded-full text-xs font-medium border border-border bg-secondary hover:bg-muted dark:bg-accent dark:hover:bg-muted/80 text-muted-foreground"
+            >
+              Reset
+            </button>
           )}
         </div>
 
@@ -473,67 +611,79 @@ export default function Home() {
         )}
 
         {error && !loading && (
-          <div className={`p-5 rounded-xl mb-5 ${darkMode ? 'bg-red-950/30 border border-red-900' : 'bg-red-50 border border-red-200'}`}>
+          <div className="p-5 rounded-xl mb-5 bg-destructive/10 dark:bg-destructive/20 border border-destructive dark:border-destructive/60">
             <p className="text-sm">{error}</p>
-            <button onClick={() => fetchNews(true)} className={`mt-2 px-3 py-1.5 text-sm rounded-lg font-medium ${darkMode ? 'bg-red-950/50 text-red-400 hover:bg-red-950' : 'bg-red-100 text-red-600 hover:bg-red-200'}`}>Try again</button>
+            <button onClick={() => fetchNews(true)} className="mt-2 px-3 py-1.5 text-sm rounded-lg font-medium bg-destructive/20 dark:bg-destructive/30 text-destructive hover:bg-destructive/30 dark:hover:bg-destructive/40">Try again</button>
           </div>
         )}
 
         {/* Executive Summary - Today's Top Stories */}
         {!loading && !error && topStories.length > 0 && (
           <section className="mb-8">
-            <h2 className={`text-sm font-bold uppercase tracking-wider mb-3 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Today's Top Stories</h2>
+            <h2 className="text-sm font-bold uppercase tracking-wider mb-3 text-muted-foreground">Today's Top Stories</h2>
             <div className="grid grid-cols-3 md:grid-cols-5 gap-3">
-              {topStories.map((item, idx) => (
-                <a
-                  key={idx}
-                  href={item.link}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={`block p-4 rounded-xl border transition-all hover:shadow-md group relative overflow-hidden ${
-                    darkMode
-                      ? 'bg-gray-900/50 border-gray-800 hover:border-gray-700'
-                      : 'bg-white border-gray-200 hover:border-gray-300 hover:shadow-lg'
-                  }`}
-                >
-                  {item.gradientClass && (
-                    <div className={`absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r ${item.gradientClass}`} />
-                  )}
-                  {item.image && (
-                    <div className={`mb-3 rounded-lg overflow-hidden ${darkMode ? 'bg-gray-800' : 'bg-gray-100'} flex items-center justify-center ${isFavicon(item.image) ? 'h-12' : ''}`}>
-                      <img src={item.image} alt="" className={`w-full ${isFavicon(item.image) ? 'h-8 object-contain p-1.5' : 'h-20 object-cover'}`} loading="lazy" onError={e => e.currentTarget.style.display = 'none'} />
-                    </div>
-                  )}
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className={`flex items-center gap-2 mb-1.5 text-xs ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                        <span className={`px-2 py-0.5 rounded-full font-medium ${
-                          darkMode ? 'bg-blue-950/50 text-blue-300' : 'bg-blue-50 text-blue-700 border border-blue-100'
-                        }`}>{item.category}</span>
-                        <span className={`w-1 h-1 rounded-full ${darkMode ? 'bg-gray-600' : 'bg-gray-300'}`} aria-hidden="true" />
-                        <span>{item.source}</span>
-                        {item.language && (
-                          <>
-                            <span className={`w-1 h-1 rounded-full ${darkMode ? 'bg-gray-600' : 'bg-gray-300'}`} aria-hidden="true" />
-                            <span className="text-orange-400">{item.language}</span>
-                          </>
+              {topStories.map((item, idx) => {
+                const itemKey = item.link || item.title;
+                const isSelected = selectedArticles.has(itemKey);
+                return (
+                  <a
+                    key={idx}
+                    href={item.link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`block p-4 rounded-xl border transition-all hover:shadow-md group relative overflow-hidden bg-card dark:bg-card ${isSelected ? 'border-blue-500 ring-1 ring-blue-500/30' : 'border-border dark:border-border'} hover:shadow-lg`}
+                  >
+                    {item.gradientClass && (
+                      <div className={`absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r ${item.gradientClass}`} />
+                    )}
+                    {/* Selection checkbox */}
+                    <button
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleArticleSelection(item); }}
+                      className="absolute top-2 left-2 z-10 p-1 rounded-md bg-card dark:bg-card border border-border opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <div className={`w-3.5 h-3.5 rounded-sm flex items-center justify-center ${isSelected ? 'bg-blue-600' : 'border border-muted-foreground/40'}`}>
+                        {isSelected && <Check size={10} className="text-white" />}
+                      </div>
+                    </button>
+                    {item.image && (
+                      <div className={`mb-3 rounded-lg overflow-hidden bg-muted dark:bg-accent flex items-center justify-center ${isFavicon(item.image) ? 'h-12' : ''}`}>
+                        <img src={item.image} alt="" className={`w-full ${isFavicon(item.image) ? 'h-8 object-contain p-1.5' : 'h-20 object-cover'}`} loading="lazy" onError={e => e.currentTarget.style.display = 'none'} />
+                      </div>
+                    )}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1.5 text-xs text-muted-foreground">
+                          <span className={`px-2 py-0.5 rounded-full font-medium ${darkMode ? 'bg-blue-700/15 text-blue-300' : 'bg-blue-50 text-blue-600 border-blue-200'}`}>{item.category}</span>
+                          <span className="w-1 h-1 rounded-full bg-muted dark:bg-accent" aria-hidden="true" />
+                          <span>{item.source}</span>
+                          {item.language && (
+                            <>
+                              <span className="w-1 h-1 rounded-full bg-muted dark:bg-accent" aria-hidden="true" />
+                            </>
+                          )}
+                        </div>
+                        <h3 className="text-sm font-semibold leading-snug mb-1.5 group-hover:underline truncate">{item.title}</h3>
+                        {item.description && (
+                          <p className="text-xs leading-relaxed text-muted-foreground line-clamp-2">
+                            {item.description}
+                          </p>
                         )}
                       </div>
-                      <h3 className="text-sm font-semibold leading-snug mb-1.5 group-hover:underline truncate">{item.title}</h3>
-                      {item.description && (
-                        <p className={`text-xs leading-relaxed ${darkMode ? 'text-gray-600' : 'text-gray-400'} line-clamp-2`}>
-                          {item.description}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      <button
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleBookmark(item); }}
-                        aria-label={isBookmarked(item.link || item.title) ? 'Remove bookmark' : 'Bookmark article'}
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <button
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleAskAbout(item); }}
+                          aria-label="Ask about this article"
+                          className="p-1 rounded-lg text-muted-foreground hover:text-blue-600 dark:hover:text-blue-400 hover:bg-muted dark:hover:bg-accent transition-colors opacity-0 group-hover:opacity-100"
+                        >
+                          <MessageCircle size={12} />
+                        </button>
+                        <button
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleBookmark(item); }}
+                          aria-label={isBookmarked(item.link || item.title) ? 'Remove bookmark' : 'Bookmark article'}
                         className={`p-1 rounded-lg transition-colors ${
                           isBookmarked(item.link || item.title)
-                            ? (darkMode ? 'text-blue-400 hover:bg-gray-800' : 'text-blue-600 hover:bg-blue-50')
-                            : (darkMode ? 'text-gray-700 hover:text-gray-400 hover:bg-gray-800' : 'text-gray-300 hover:text-gray-500 hover:bg-gray-100')
+                            ? 'dark:text-blue-300 dark:hover:bg-accent text-blue-600 hover:bg-blue-50'
+                            : 'text-muted-foreground dark:text-muted-foreground/50 hover:text-foreground hover:bg-muted dark:hover:bg-accent'
                         }`}
                       >
                         {isBookmarked(item.link || item.title) ? <BookmarkCheck size={14} /> : <Bookmark size={14} />}
@@ -541,14 +691,15 @@ export default function Home() {
                       <ExternalLink size={12} className={`opacity-0 group-hover:opacity-30 transition-opacity`} />
                     </div>
                   </div>
-                  <div className={`flex items-center gap-2 mt-2 text-xs ${darkMode ? 'text-gray-600' : 'text-gray-400'}`}>
+                  <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
                     <Clock size={12} />
                     {formatPubDate(item.pubDate)}
                     <span className="opacity-50">·</span>
                     <span>{formatRelativeTime(item.pubDate)}</span>
                   </div>
                 </a>
-              ))}
+              );
+            })}
             </div>
           </section>
         )}
@@ -567,89 +718,144 @@ export default function Home() {
         )}
 
         {restOfNews.length > 0 && (
-          <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 ${darkMode ? 'text-gray-100' : 'text-gray-900'}`}>
-            {restOfNews.map((item, idx) => (
-            <a
-              key={idx}
-              href={item.link}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={`block p-4 rounded-xl border transition-all hover:shadow-md group relative overflow-hidden ${
-                darkMode
-                  ? 'bg-gray-900/50 border-gray-800 hover:border-gray-700 hover:bg-gray-900'
-                  : 'bg-white border-gray-200 hover:border-gray-300 hover:shadow-lg'
-              }`}
-            >
-              {item.gradientClass && (
-                <div className={`absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r ${item.gradientClass}`} />
-              )}
-              {item.image && (
-                <div className={`mb-3 rounded-lg overflow-hidden ${darkMode ? 'bg-gray-800' : 'bg-gray-100'} flex items-center justify-center ${isFavicon(item.image) ? 'h-12' : ''}`}>
-                  <img
-                    src={item.image}
-                    alt=""
-                    className={`w-full ${isFavicon(item.image) ? 'h-8 object-contain p-1.5' : 'h-40 object-cover'}`}
-                    loading="lazy"
-                    onError={e => e.currentTarget.style.display = 'none'}
-                  />
-                </div>
-              )}
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex-1 min-w-0">
-                  <div className={`flex items-center gap-2 mb-1.5 text-xs ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                    <span className={`px-2 py-0.5 rounded-full font-medium ${
-                      darkMode ? 'bg-blue-950/50 text-blue-300' : 'bg-blue-50 text-blue-700 border border-blue-100'
-                    }`}>{item.category}</span>
-                    <span className={`w-1 h-1 rounded-full ${darkMode ? 'bg-gray-600' : 'bg-gray-300'}`} aria-hidden="true" />
-                    <span>{item.source}</span>
-                    {item.language && (
-                      <>
-                        <span className={`w-1 h-1 rounded-full ${darkMode ? 'bg-gray-600' : 'bg-gray-300'}`} aria-hidden="true" />
-                        <span className="text-orange-400">{item.language}</span>
-                      </>
-                    )}
-                  </div>
-                  <h2 className="text-sm font-semibold leading-snug mb-1.5 group-hover:underline truncate">{item.title}</h2>
-                  {item.description && (
-                    <p className={`text-xs leading-relaxed ${darkMode ? 'text-gray-500' : 'text-gray-500'} line-clamp-2`}>
-                      {item.description}
-                    </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-foreground">
+            {restOfNews.map((item, idx) => {
+              const itemKey = item.link || item.title;
+              const isSelected = selectedArticles.has(itemKey);
+              return (
+                <a
+                  key={idx}
+                  href={item.link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`block p-4 rounded-xl border transition-all hover:shadow-md group relative overflow-hidden bg-card dark:bg-card ${isSelected ? 'border-blue-500 ring-1 ring-blue-500/30' : 'border-border dark:border-border'} hover:shadow-lg`}
+                >
+                  {item.gradientClass && (
+                    <div className={`absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r ${item.gradientClass}`} />
                   )}
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
+                  {/* Selection checkbox */}
                   <button
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleBookmark(item); }}
-                    aria-label={isBookmarked(item.link || item.title) ? 'Remove bookmark' : 'Bookmark article'}
-                    className={`p-1.5 rounded-lg transition-colors ${
-                      isBookmarked(item.link || item.title)
-                        ? (darkMode ? 'text-blue-400 hover:bg-gray-800' : 'text-blue-600 hover:bg-blue-50')
-                        : (darkMode ? 'text-gray-700 hover:text-gray-400 hover:bg-gray-800' : 'text-gray-300 hover:text-gray-500 hover:bg-gray-100')
-                    }`}
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleArticleSelection(item); }}
+                    className="absolute top-2 left-2 z-10 p-1 rounded-md bg-card dark:bg-card border border-border opacity-0 group-hover:opacity-100 transition-opacity"
                   >
-                    {isBookmarked(item.link || item.title) ? <BookmarkCheck size={16} /> : <Bookmark size={16} />}
+                    <div className={`w-3.5 h-3.5 rounded-sm flex items-center justify-center ${isSelected ? 'bg-blue-600' : 'border border-muted-foreground/40'}`}>
+                      {isSelected && <Check size={10} className="text-white" />}
+                    </div>
                   </button>
-                  <ExternalLink size={14} className={`opacity-0 group-hover:opacity-30 transition-opacity`} />
-                </div>
-              </div>
-              <div className={`flex items-center gap-2 mt-2 text-xs ${darkMode ? 'text-gray-600' : 'text-gray-400'}`}>
-                <Clock size={12} />
-                {formatPubDate(item.pubDate)}
-                <span className="opacity-50">·</span>
-                <span>{formatRelativeTime(item.pubDate)}</span>
-              </div>
-            </a>
-          ))}
-        </div>
+                  {item.image && (
+                    <div className={`mb-3 rounded-lg overflow-hidden bg-muted dark:bg-accent flex items-center justify-center ${isFavicon(item.image) ? 'h-12' : ''}`}>
+                      <img
+                        src={item.image}
+                        alt=""
+                        className={`w-full ${isFavicon(item.image) ? 'h-8 object-contain p-1.5' : 'h-40 object-cover'}`}
+                        loading="lazy"
+                        onError={e => e.currentTarget.style.display = 'none'}
+                      />
+                    </div>
+                  )}
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1.5 text-xs text-muted-foreground">
+                        <span className={`px-2 py-0.5 rounded-full font-medium ${darkMode ? 'bg-blue-700/15 text-blue-300' : 'bg-blue-50 text-blue-600 border-blue-200'}`}>{item.category}</span>
+                        <span className="w-1 h-1 rounded-full bg-muted dark:bg-accent" aria-hidden="true" />
+                        <span>{item.source}</span>
+                        {item.language && (
+                          <>
+                            <span className="w-1 h-1 rounded-full bg-muted dark:bg-accent" aria-hidden="true" />
+                            <span className="text-orange-400">{item.language}</span>
+                          </>
+                        )}
+                      </div>
+                      <h2 className="text-sm font-semibold leading-snug mb-1.5 group-hover:underline truncate">{item.title}</h2>
+                      {item.description && (
+                        <p className="text-xs leading-relaxed text-muted-foreground line-clamp-2">
+                          {item.description}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <button
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleAskAbout(item); }}
+                        aria-label="Ask about this article"
+                        className="p-1 rounded-lg text-muted-foreground hover:text-blue-600 dark:hover:text-blue-400 hover:bg-muted dark:hover:bg-accent transition-colors opacity-0 group-hover:opacity-100"
+                      >
+                        <MessageCircle size={12} />
+                      </button>
+                      <button
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleBookmark(item); }}
+                        aria-label={isBookmarked(item.link || item.title) ? 'Remove bookmark' : 'Bookmark article'}
+                        className={`p-1.5 rounded-lg transition-colors ${
+                          isBookmarked(item.link || item.title)
+                            ? 'dark:text-blue-300 dark:hover:bg-accent text-blue-600 hover:bg-blue-50'
+                            : 'text-muted-foreground dark:text-muted-foreground/50 hover:text-foreground hover:bg-muted dark:hover:bg-accent'
+                        }`}
+                      >
+                        {isBookmarked(item.link || item.title) ? <BookmarkCheck size={16} /> : <Bookmark size={16} />}
+                      </button>
+                      <ExternalLink size={14} className={`opacity-0 group-hover:opacity-30 transition-opacity`} />
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
+                    <Clock size={12} />
+                    {formatPubDate(item.pubDate)}
+                    <span className="opacity-50">·</span>
+                    <span>{formatRelativeTime(item.pubDate)}</span>
+                  </div>
+                </a>
+              );
+            })}
+          </div>
         )}
 
         {/* Footer */}
         {!loading && sortedNews.length > 0 && (
-          <div className={`mt-6 text-center text-xs ${darkMode ? 'text-gray-700' : 'text-gray-400'}`}>
+          <div className="mt-6 text-center text-xs text-muted-foreground">
             {sortedNews.length} articles from {new Set(sortedNews.map(n => n.source)).size} sources · 
             Last updated: {lastFetchTime ? new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' }).format(lastFetchTime) : new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' }).format(new Date())}
           </div>
         )}
+        </div>
       </main>
+
+      {/* Floating Compare Button */}
+      {selectedArticles.size >= 2 && (
+        <button
+          onClick={handleCompareSelected}
+          className="fixed bottom-16 right-6 z-40 px-3 py-2 rounded-full shadow-lg bg-blue-600 text-white dark:bg-blue-700 hover:opacity-90 transition-all text-xs font-medium flex items-center gap-1.5"
+        >
+          <ArrowUpRight size={12} />
+          Compare {selectedArticles.size} articles
+        </button>
+      )}
+
+      {/* Floating Chat Toggle (hidden in split mode) */}
+      {chatLayoutMode === 'overlay' && (
+        <button
+          onClick={() => setChatOpen(!chatOpen)}
+          className={`fixed bottom-6 right-6 z-40 p-3 rounded-full shadow-lg transition-all ${
+            chatOpen
+              ? 'bg-blue-600 text-white dark:bg-blue-700'
+              : 'bg-card dark:bg-card text-muted-foreground border border-border hover:bg-muted dark:hover:bg-accent'
+          }`}
+          aria-label="Toggle chat"
+        >
+          <MessageCircle size={20} />
+        </button>
+      )}
+
+      {/* Chat Sidebar */}
+      <ChatSidebar
+        open={chatOpen}
+        onClose={() => setChatOpen(false)}
+        provider={chatProvider}
+        articles={sortedNews}
+        darkMode={darkMode}
+        focusArticle={focusArticle}
+        compareArticles={compareArticles}
+        layoutMode={chatLayoutMode}
+        onLayoutToggle={handleLayoutToggle}
+      />
+      </div>
     </div>
   );
 }

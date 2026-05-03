@@ -41,7 +41,7 @@ export async function fetchHackerNews(): Promise<ParsedNewsItem[]> {
           description: truncate((story.desc as string) || '', 200),
           image: null,
           pubDate: new Date(story.time * 1000).toISOString(),
-          category: 'Startups',
+          category: 'Innovation',
           source: 'Hacker News',
         });
       }
