@@ -6,6 +6,7 @@ import { loadFeeds, saveFeeds, addFeed, updateFeed, removeFeed, toggleFeed } fro
 import FeedImportExport from './FeedImportExport';
 
 const CATEGORIES = ['Startups', 'Consumer Tech', 'AI', 'Innovation', 'Open Source'];
+const LANGUAGES = ['English', '繁體中文'];
 const FEEDS_KEY = 'technews-feeds';
 
 export default function FeedManager({ darkMode, onFeedsChange }) {
@@ -78,8 +79,22 @@ export default function FeedManager({ darkMode, onFeedsChange }) {
     setEditSource(feed.source);
   }
 
-  const groupedFeeds = CATEGORIES.reduce((acc, cat) => {
-    acc[cat] = feeds.filter(f => f.category === cat);
+  const groupedFeeds = LANGUAGES.reduce((acc, lang) => {
+    acc[lang] = CATEGORIES.reduce((catAcc, cat) => {
+      catAcc[cat] = feeds.filter(f => f.category === cat && (lang === 'English' ? !f.language : !!f.language));
+      return catAcc;
+    }, {});
+    return acc;
+  }, {});
+
+  function getLanguageLabel(feed) {
+    if (!feed.language) return 'English';
+    if (feed.language.startsWith('zh')) return '繁體中文';
+    return feed.language;
+  }
+
+  const groupedByLanguage = LANGUAGES.reduce((acc, lang) => {
+    acc[lang] = feeds.filter(f => getLanguageLabel(f) === lang);
     return acc;
   }, {});
 
@@ -135,84 +150,94 @@ export default function FeedManager({ darkMode, onFeedsChange }) {
         </div>
       </div>
 
-      {/* Feed list by category */}
-      {CATEGORIES.map(cat => (
-        groupedFeeds[cat].length > 0 && (
-          <div key={cat}>
-            <div className="text-xs text-muted-foreground mb-1">{cat}</div>
-            <div className="space-y-1">
-              {groupedFeeds[cat].map(feed => (
-                <div
-                  key={feed.url}
-                  className={`flex items-center gap-2 px-2 py-1 rounded text-xs ${!feed.enabled ? 'opacity-50' : ''}`}
-                >
-                  {/* Enable toggle */}
-                  <button
-                    onClick={() => handleToggleFeed(feed.url)}
-                    className={`w-4 h-4 rounded border flex-shrink-0 flex items-center justify-center ${
-                      feed.enabled
-                        ? 'bg-blue-600 border-blue-600'
-                        : 'bg-transparent border-muted dark:border-accent/50'
-                    }`}
-                  >
-                    {feed.enabled && <Check size={8} className="text-white" />}
-                  </button>
-
-                  {/* Source name / edit field */}
-                  {editingUrl === feed.url ? (
-                    <input
-                      type="text"
-                      value={editSource}
-                      onChange={(e) => setEditSource(e.target.value)}
-                      onBlur={() => handleUpdateFeed(feed.url)}
-                      onKeyDown={(e) => e.key === 'Enter' && handleUpdateFeed(feed.url)}
-                      autoFocus
-                      className="flex-1 px-1 py-0.5 rounded text-xs border bg-background dark:bg-card border-border text-foreground"
-                    />
-                  ) : (
-                    <span className={`flex-1 truncate ${!feed.enabled ? 'line-through' : ''}`}>
-                      {feed.source}
-                    </span>
-                  )}
-
-                  {/* Test button */}
-                  <button
-                    onClick={() => testFeedUrl(feed.url)}
-                    disabled={testing === feed.url || !feed.enabled}
-                    className="px-1.5 py-0.5 rounded text-xs border border-border bg-secondary hover:bg-muted dark:bg-accent dark:hover:bg-muted/80 disabled:opacity-40"
-                  >
-                    {testing === feed.url ? <Loader2 size={10} className="animate-spin" /> : testResults[feed.url] === 'ok' ? <Check size={10} className="text-green-600" /> : testResults[feed.url] === 'error' ? <X size={10} className="text-red-500" /> : 'Test'}
-                  </button>
-
-                  {/* Edit button */}
-                  <button
-                    onClick={() => startEdit(feed)}
-                    disabled={editingUrl !== null}
-                    className="p-1 rounded hover:bg-muted dark:hover:bg-accent text-muted-foreground disabled:opacity-40"
-                  >
-                    <Edit2 size={10} />
-                  </button>
-
-                  {/* Delete button */}
-                  <button
-                    onClick={() => handleDeleteFeed(feed.url)}
-                    className="p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-muted-foreground hover:text-red-600"
-                  >
-                    <Trash2 size={10} />
-                  </button>
-
-                  {/* Link */}
-                  <a
-                    href={feed.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="p-1 rounded hover:bg-muted dark:hover:bg-accent text-muted-foreground flex-shrink-0"
-                  >
-                    <ExternalLink size={10} />
-                  </a>
-                </div>
-              ))}
+      {/* Feed list grouped by language */}
+      {LANGUAGES.map(lang => (
+        groupedByLanguage[lang].length > 0 && (
+          <div key={lang}>
+            <div className="text-xs font-semibold text-muted-foreground mb-1.5 flex items-center gap-2">
+              <span>{lang}</span>
+              <span className="text-[10px] opacity-60">({groupedByLanguage[lang].length} sources)</span>
             </div>
+            {CATEGORIES.map(cat => (
+              groupedFeeds[lang][cat].length > 0 && (
+                <div key={cat}>
+                  <div className="text-[10px] text-muted-foreground mb-1 ml-2">{cat}</div>
+                  <div className="space-y-1 ml-2">
+                    {groupedFeeds[lang][cat].map(feed => (
+                      <div
+                        key={feed.url}
+                        className={`flex items-center gap-2 px-2 py-1 rounded text-xs ${!feed.enabled ? 'opacity-50' : ''}`}
+                      >
+                        {/* Enable toggle */}
+                        <button
+                          onClick={() => handleToggleFeed(feed.url)}
+                          className={`w-4 h-4 rounded border flex-shrink-0 flex items-center justify-center ${
+                            feed.enabled
+                              ? 'bg-blue-600 border-blue-600'
+                              : 'bg-transparent border-muted dark:border-accent/50'
+                          }`}
+                        >
+                          {feed.enabled && <Check size={8} className="text-white" />}
+                        </button>
+
+                        {/* Source name / edit field */}
+                        {editingUrl === feed.url ? (
+                          <input
+                            type="text"
+                            value={editSource}
+                            onChange={(e) => setEditSource(e.target.value)}
+                            onBlur={() => handleUpdateFeed(feed.url)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleUpdateFeed(feed.url)}
+                            autoFocus
+                            className="flex-1 px-1 py-0.5 rounded text-xs border bg-background dark:bg-card border-border text-foreground"
+                          />
+                        ) : (
+                          <span className={`flex-1 truncate ${!feed.enabled ? 'line-through' : ''}`}>
+                            {feed.source}
+                          </span>
+                        )}
+
+                        {/* Test button */}
+                        <button
+                          onClick={() => testFeedUrl(feed.url)}
+                          disabled={testing === feed.url || !feed.enabled}
+                          className="px-1.5 py-0.5 rounded text-xs border border-border bg-secondary hover:bg-muted dark:bg-accent dark:hover:bg-muted/80 disabled:opacity-40"
+                        >
+                          {testing === feed.url ? <Loader2 size={10} className="animate-spin" /> : testResults[feed.url] === 'ok' ? <Check size={10} className="text-green-600" /> : testResults[feed.url] === 'error' ? <X size={10} className="text-red-500" /> : 'Test'}
+                        </button>
+
+                        {/* Edit button */}
+                        <button
+                          onClick={() => startEdit(feed)}
+                          disabled={editingUrl !== null}
+                          className="p-1 rounded hover:bg-muted dark:hover:bg-accent text-muted-foreground disabled:opacity-40"
+                        >
+                          <Edit2 size={10} />
+                        </button>
+
+                        {/* Delete button */}
+                        <button
+                          onClick={() => handleDeleteFeed(feed.url)}
+                          className="p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-muted-foreground hover:text-red-600"
+                        >
+                          <Trash2 size={10} />
+                        </button>
+
+                        {/* Link */}
+                        <a
+                          href={feed.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-1 rounded hover:bg-muted dark:hover:bg-accent text-muted-foreground flex-shrink-0"
+                        >
+                          <ExternalLink size={10} />
+                        </a>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            ))}
           </div>
         )
       ))}

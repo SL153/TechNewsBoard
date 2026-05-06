@@ -76,6 +76,10 @@ async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Respons
 async function parseRSSXML(xmlText: string): Promise<any> {
   const items: any[] = [];
 
+  // Extract channel-level language from RSS/Atom header
+  const langMatch = xmlText.match(/<language>([\s\S]*?)<\/language>/);
+  const dcLangMatch = xmlText.match(/xmlns:dc="[^"]*"[^>]*><language>([\s\S]*?)<\/language>/);
+
   // Try RSS 2.0 format first (<item> tags)
   const itemRegex = /<item>([\s\S]*?)<\/item>/g;
   let match;
@@ -138,7 +142,7 @@ async function parseRSSXML(xmlText: string): Promise<any> {
     }
   }
 
-  return { items };
+  return { items, language: langMatch ? stripCDATA(langMatch[1]) : undefined };
 }
 
 async function fetchRSSFeed(url: string, timeoutMs: number): Promise<any> {
@@ -183,6 +187,7 @@ export async function fetchFeedWithFallback(feed: NewsSource): Promise<ParsedNew
       pubDate: item.pubDate || null,
       category: feed.category,
       source: feed.source,
+      language: feed.language || (feedResult.language ? stripCDATA(feedResult.language) : undefined),
     }));
     results.push(...items);
     return results;
@@ -204,6 +209,7 @@ export async function fetchFeedWithFallback(feed: NewsSource): Promise<ParsedNew
           pubDate: item.pubDate || null,
           category: feed.category,
           source: feed.source,
+          language: feed.language || (feedResult.language ? stripCDATA(feedResult.language) : undefined),
         }));
         results.push(...items);
         if (results.length > 0) break;

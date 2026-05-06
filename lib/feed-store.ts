@@ -6,6 +6,7 @@ export interface StoredFeed {
   url: string;
   category: string;
   source: string;
+  language?: string;
   maxItems?: number;
   enabled: boolean;
 }
@@ -41,6 +42,11 @@ const DEFAULT_SOURCES: StoredFeed[] = [
 
   { url: 'https://www.opensourceforu.com/feed/', category: 'Open Source', source: 'Open Source For U', maxItems: 10, enabled: true },
   { url: 'https://huggingface.co/blog/feed.xml', category: 'Open Source', source: 'Hugging Face Blog', maxItems: 15, enabled: true },
+
+  // --- Traditional Chinese (繁體中文) ---
+  { url: 'https://www.hkepc.com/rss', category: 'Consumer Tech', source: 'HKEPC Hardware', language: 'zh-HK', maxItems: 15, enabled: true },
+  { url: 'https://unwire.hk/feed/', category: 'Startups', source: 'Unwire HK', language: 'zh-HK', maxItems: 15, enabled: true },
+  { url: 'https://technews.tw/feed/', category: 'AI', source: 'TechNews 科技新報', language: 'zh-TW', maxItems: 15, enabled: true },
 ];
 
 export function loadFeeds(): StoredFeed[] {
@@ -94,10 +100,11 @@ export function toggleFeed(url: string): StoredFeed[] {
 export function getEnabledSources(): NewsSource[] {
   return loadFeeds()
     .filter(f => f.enabled)
-    .map(({ url, category, source, maxItems }) => ({
+    .map(({ url, category, source, language, maxItems }) => ({
       url,
       category,
       source,
+      language: language || undefined,
       maxItems: maxItems || 15,
     }));
 }

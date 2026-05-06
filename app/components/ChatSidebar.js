@@ -101,6 +101,8 @@ export default function ChatSidebar({ open, onClose, provider, articles, darkMod
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const abortRef = useRef(null);
+  const openRef = useRef(open);
+  useEffect(() => { openRef.current = open; }, [open]);
 
   useEffect(() => {
     setMessages(loadChatHistory());
@@ -245,20 +247,18 @@ export default function ChatSidebar({ open, onClose, provider, articles, darkMod
 
   // Handle focusArticle prop — auto-send when it changes and chat is open
   useEffect(() => {
-    if (focusArticle && open) {
-      const text = `Tell me more about: ${focusArticle.title}`;
-      sendMessageRef.current(text, { focusArticle });
-    }
-  }, [focusArticle, open]);
+    if (!openRef.current || !focusArticle) return;
+    const text = `Tell me more about: ${focusArticle.title}`;
+    sendMessageRef.current(text, { focusArticle });
+  }, [focusArticle]);
 
   // Handle compareArticles prop — auto-send when it changes and chat is open
   useEffect(() => {
-    if (compareArticles && compareArticles.length >= 2 && open) {
-      const titles = compareArticles.map(a => a.title).join(', ');
-      const text = `Compare these articles: ${titles}`;
-      sendMessageRef.current(text, { compareArticles });
-    }
-  }, [compareArticles, open]);
+    if (!openRef.current || !compareArticles || compareArticles.length < 2) return;
+    const titles = compareArticles.map(a => a.title).join(', ');
+    const text = `Compare these articles: ${titles}`;
+    sendMessageRef.current(text, { compareArticles });
+  }, [compareArticles]);
 
   function handleKeyDown(e) {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -323,6 +323,20 @@ export default function ChatSidebar({ open, onClose, provider, articles, darkMod
             <p className="text-sm text-muted-foreground">
               Ask questions about the {articles?.length || 0} articles currently in your feed.
             </p>
+            {!streaming && (
+              <div className="flex flex-wrap gap-1.5 justify-center pt-2">
+                {quickPrompts.map(suggestion => (
+                  <button
+                    key={suggestion}
+                    onClick={() => sendMessage(suggestion)}
+                    className="px-2 py-0.5 rounded-full text-[11px] bg-secondary dark:bg-accent text-muted-foreground hover:bg-muted dark:hover:bg-muted/80 transition-colors flex items-center gap-1"
+                  >
+                    <Sparkles size={9} />
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

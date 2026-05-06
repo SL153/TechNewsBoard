@@ -34,7 +34,15 @@ const PRESETS = {
     label: 'Ollama',
     endpoint: 'http://localhost:11434',
     defaultModel: 'qwen3.6',
-    models: ['qwen3.6', 'gemma4', 'granite4.1', 'deepseek-v4-flash', 'mistral-medium-3.5'],
+    models: ['qwen3.6', '__custom__'],
+    requiresKey: false,
+    authType: 'none',
+  },
+  lmstudio: {
+    label: 'LM Studio',
+    endpoint: 'http://localhost:1234/v1',
+    defaultModel: 'default',
+    models: ['default', '__custom__'],
     requiresKey: false,
     authType: 'none',
   },
@@ -57,6 +65,7 @@ const PRESETS = {
 };
 
 const STORAGE_KEY = 'technews-chat-providers';
+const ACTIVE_TYPE_KEY = 'technews-chat-active-type';
 const GITHUB_TOKEN_KEY = 'technews-github-token';
 const GITHUB_CLIENT_ID_KEY = 'technews-github-client-id';
 
@@ -104,6 +113,7 @@ export default function ChatProviderSettings({ darkMode, onProviderChange }) {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null); // 'ok' | 'error' | null
   const [responseLength, setResponseLength] = useState('balanced');
+  const [loaded, setLoaded] = useState(false);
 
   // GitHub OAuth state
   const [githubClientId, setGithubClientId] = useState('');
@@ -126,8 +136,14 @@ export default function ChatProviderSettings({ darkMode, onProviderChange }) {
   // Load saved config on mount
   useEffect(() => {
     migrateLegacyConfig();
+    let activeType = 'openai';
+    if (typeof window !== 'undefined') {
+      const storedActive = localStorage.getItem(ACTIVE_TYPE_KEY);
+      if (storedActive) {
+        activeType = storedActive;
+      }
+    }
     const all = loadAllConfigs();
-    const activeType = Object.keys(all).length > 0 ? 'openai' : 'openai';
     const saved = all[activeType];
     if (saved) {
       setProviderType(activeType);
@@ -147,10 +163,12 @@ export default function ChatProviderSettings({ darkMode, onProviderChange }) {
     const savedClientId = typeof window !== 'undefined' ? localStorage.getItem(GITHUB_CLIENT_ID_KEY) : null;
     if (savedToken) setGithubToken(savedToken);
     if (savedClientId) setGithubClientId(savedClientId);
+    setLoaded(true);
   }, []);
 
-  // Save and notify parent whenever config changes
+  // Save and notify parent whenever config changes (only after initial load)
   useEffect(() => {
+    if (!loaded) return;
     const preset = PRESETS[providerType];
     const resolvedKey = providerType === 'github' ? githubToken : apiKey;
     const config = {
@@ -162,8 +180,11 @@ export default function ChatProviderSettings({ darkMode, onProviderChange }) {
       responseLength,
     };
     saveConfigForType(providerType, config);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(ACTIVE_TYPE_KEY, providerType);
+    }
     if (onProviderChange) onProviderChange({ type: providerType, ...config });
-  }, [providerType, endpoint, apiKey, model, githubToken, requestFormat, customAuthType, responseLength]);
+  }, [loaded, providerType, endpoint, apiKey, model, githubToken, requestFormat, customAuthType, responseLength]);
 
   function switchProvider(type) {
     const preset = PRESETS[type];
@@ -483,17 +504,9 @@ export default function ChatProviderSettings({ darkMode, onProviderChange }) {
         <div>
           <label className="text-xs text-muted-foreground block mb-1">Model</label>
           {preset.models.length === 0 ? (
-            <input
-              type="text"
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              placeholder="Enter model name..."
-              className="w-full px-2.5 py-1.5 rounded-lg text-xs border bg-card border-border text-foreground placeholder:text-muted-foreground"
-            />
-          ) : (
             <>
               <select
-                value={preset.models.includes(model) ? model : '__custom__'}
+                value={model && preset.models.includes(model) ? model : '__custom__'}
                 onChange={(e) => {
                   if (e.target.value === '__custom__') {
                     setModel('');
@@ -503,12 +516,35 @@ export default function ChatProviderSettings({ darkMode, onProviderChange }) {
                 }}
                 className="w-full px-2.5 py-1.5 rounded-lg text-xs border bg-card border-border text-foreground appearance-none"
               >
-                {preset.models.map(m => (
+                <option value="__custom__">Custom...</option>
+              </select>
+              <input
+                type="text"
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                placeholder="Enter model name..."
+                className="mt-1.5 w-full px-2.5 py-1.5 rounded-lg text-xs border bg-card border-border text-foreground placeholder:text-muted-foreground"
+              />
+            </>
+          ) : (
+            <>
+              <select
+                value={preset.models.filter(m => m !== '__custom__').includes(model) ? model : '__custom__'}
+                onChange={(e) => {
+                  if (e.target.value === '__custom__') {
+                    setModel('');
+                  } else {
+                    setModel(e.target.value);
+                  }
+                }}
+                className="w-full px-2.5 py-1.5 rounded-lg text-xs border bg-card border-border text-foreground appearance-none"
+              >
+                {preset.models.filter(m => m !== '__custom__').map(m => (
                   <option key={m} value={m}>{m}</option>
                 ))}
                 <option value="__custom__">Custom...</option>
               </select>
-              {!preset.models.includes(model) && model !== '' && (
+              {(model === '' || !preset.models.filter(m => m !== '__custom__').includes(model)) && (
                 <input
                   type="text"
                   value={model}

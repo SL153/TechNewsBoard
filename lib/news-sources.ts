@@ -2,6 +2,7 @@ export interface NewsSource {
   url: string;
   category: string;
   source: string;
+  language?: string;
   maxItems?: number;
   timeout?: number;
   fallbackUrls?: string[];
@@ -38,6 +39,11 @@ const DEFAULT_SOURCES: NewsSource[] = [
   // --- Open Source ---
   { url: 'https://www.opensourceforu.com/feed/', category: 'Open Source', source: 'Open Source For U', maxItems: 10, fallbackUrls: [] },
   { url: 'https://huggingface.co/blog/feed.xml', category: 'Open Source', source: 'Hugging Face Blog', maxItems: 15, fallbackUrls: [] },
+
+  // --- Traditional Chinese (繁體中文) ---
+  { url: 'https://www.hkepc.com/rss', category: 'Consumer Tech', source: 'HKEPC Hardware', language: 'zh-HK', maxItems: 15, fallbackUrls: [] },
+  { url: 'https://unwire.hk/feed/', category: 'Startups', source: 'Unwire HK', language: 'zh-HK', maxItems: 15, fallbackUrls: [] },
+  { url: 'https://technews.tw/feed/', category: 'AI', source: 'TechNews 科技新報', language: 'zh-TW', maxItems: 15, fallbackUrls: [] },
 ];
 
 export const RSS_FEEDS = DEFAULT_SOURCES;
@@ -54,15 +60,16 @@ function loadUserFeeds() {
     const data = JSON.parse(stored);
     if (!data.sources || !Array.isArray(data.sources)) return DEFAULT_SOURCES;
     
-    // Map StoredFeed to NewsSource format with fallback URLs from defaults
+    // Map StoredFeed to NewsSource format with fallback URLs and language from defaults
     const sourceMap = new Map(DEFAULT_SOURCES.map(s => [s.source, s]));
     return (
       data.sources
         .filter((f: any) => f.enabled !== false)
-        .map(({ url, category, source, maxItems }) => ({
+        .map(({ url, category, source, maxItems, language }) => ({
           url,
           category,
           source,
+          language: language || sourceMap.get(source)?.language,
           maxItems: maxItems || 15,
           fallbackUrls: sourceMap.get(source)?.fallbackUrls || [],
         }))

@@ -62,5 +62,15 @@ export async function GET(request: Request) {
     );
   }
 
+  // Server-side language filtering
+  const langParam = searchParams.get('lang');
+  if (langParam !== null) {
+    if (langParam === '') {
+      allItems = allItems.filter(item => !item.language || !item.language.startsWith('zh'));
+    } else {
+      allItems = allItems.filter(item => item.language && item.language.startsWith('zh'));
+    }
+  }
+
   return Response.json(allItems);
 }

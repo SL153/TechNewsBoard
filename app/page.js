@@ -12,6 +12,7 @@ import * as NotificationStore from '@/lib/notification-store';
 import { getEnabledSources } from '@/lib/feed-store';
 
 const CATEGORY_MAP = ['All', 'Startups', 'Consumer Tech', 'AI', 'Innovation', 'Open Source'];
+const LANGUAGES = ['English', '繁體中文'];
 const DAY_RANGES = [
   { label: 'Today', days: 1 },
   { label: '3 Days', days: 3 },
@@ -74,6 +75,7 @@ export default function Home() {
   const [autoRefreshInterval, setAutoRefreshInterval] = useState(1800000);
   const [lastFetchTime, setLastFetchTime] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedLanguage, setSelectedLanguage] = useState('English');
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const searchTimeoutRef = useRef(null);
   const [bookmarks, setBookmarks] = useState([]);
@@ -88,16 +90,8 @@ export default function Home() {
   const [chatLayoutMode, setChatLayoutMode] = useState('split');
 
   useEffect(() => {
-    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
-    searchTimeoutRef.current = setTimeout(() => {
-      setDebouncedSearchQuery(searchQuery);
-    }, 300);
-    return () => clearTimeout(searchTimeoutRef.current);
-  }, [searchQuery]);
-
-  useEffect(() => {
     fetchNews();
-  }, [dayRange, selectedCategories, debouncedSearchQuery]);
+  }, [dayRange, selectedCategories, debouncedSearchQuery, selectedLanguage]);
 
   useEffect(() => {
     setSelectedCategories(new Set(['All']));
@@ -160,6 +154,12 @@ export default function Home() {
       const enabledSources = getEnabledSources();
       const sourceNames = enabledSources.map(s => s.source);
       params.set('feeds', JSON.stringify(sourceNames));
+
+      if (selectedLanguage === '繁體中文') {
+        params.set('lang', 'zh-HK');
+      } else {
+        params.set('lang', '');
+      }
       
       const queryString = params.toString();
       const url = `/api/news${queryString ? '?' + queryString : ''}`;
@@ -472,6 +472,23 @@ export default function Home() {
 
         {/* Filters */}
         <div className="flex flex-wrap items-center gap-2 mb-5">
+          {/* Language tabs */}
+          <span className="text-xs text-muted-foreground">Language:</span>
+          {LANGUAGES.map(lang => (
+            <button
+              key={lang}
+              onClick={() => setSelectedLanguage(lang)}
+              touch-action="manipulation"
+              className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
+                selectedLanguage === lang
+                  ? 'bg-blue-600 text-white dark:bg-blue-700'
+                  : 'bg-secondary hover:bg-muted text-muted-foreground border-border dark:bg-accent dark:hover:bg-muted/80 dark:text-muted-foreground dark:border-border'
+              }`}
+            >
+              {lang}
+            </button>
+          ))}
+
           {/* Categories */}
           <span className="text-xs text-muted-foreground">Categories:</span>
           {CATEGORY_MAP.map(cat => (
@@ -717,7 +734,7 @@ export default function Home() {
           </div>
         )}
 
-        {restOfNews.length > 0 && (
+        {!loading && restOfNews.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-foreground">
             {restOfNews.map((item, idx) => {
               const itemKey = item.link || item.title;
