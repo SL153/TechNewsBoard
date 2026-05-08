@@ -26,8 +26,15 @@ const DEFAULT_SOURCES: NewsSource[] = [
   // --- AI ---
   { url: 'https://techcrunch.com/category/artificial-intelligence/feed/', category: 'AI', source: 'TechCrunch AI', maxItems: 15, fallbackUrls: [] },
   { url: 'https://blog.google/technology/ai/rss/', category: 'AI', source: 'Google AI Blog', maxItems: 15, fallbackUrls: [] },
-  { url: 'https://openai.com/blog/rss.xml', category: 'AI', source: 'OpenAI Blog', maxItems: 15, fallbackUrls: ['https://openai.com/news/rss'] },
   { url: 'https://spectrum.ieee.org/feeds/topic/artificial-intelligence.rss', category: 'AI', source: 'IEEE Spectrum AI', maxItems: 15, fallbackUrls: [] },
+  { url: 'https://deepmind.google/blog/rss.xml', category: 'AI', source: 'Google DeepMind Blog', maxItems: 15, fallbackUrls: [] },
+
+  // --- AI Blogs ---
+  { url: 'https://openai.com/blog/rss.xml', category: 'AI Blogs', source: 'OpenAI Blog', maxItems: 15, fallbackUrls: ['https://openai.com/news/rss'] },
+  { url: 'https://www.anthropic.com/research', category: 'AI Blogs', source: 'Anthropic Blog', maxItems: 15, fallbackUrls: [] },
+  { url: 'https://www.kimi.com/blog', category: 'AI Blogs', source: 'Kimi/Moonshot Blog', maxItems: 15, fallbackUrls: ['https://kimi.moonshot.cn/blog'] },
+  { url: 'https://www.microsoft.com/en-us/research/feed/', category: 'AI Blogs', source: 'Microsoft Research Blog', maxItems: 15, fallbackUrls: [] },
+  { url: 'https://blogs.nvidia.com/feed/', category: 'AI Blogs', source: 'NVIDIA Blog', maxItems: 15, fallbackUrls: ['https://blogs.nvidia.com/blog/category/deep-learning/feed/'] },
 
   // --- Innovation ---
   { url: 'https://feeds.arstechnica.com/arstechnica/index', category: 'Innovation', source: 'Ars Technica', maxItems: 15, fallbackUrls: ['https://arstechnica.com/feed/'] },
@@ -41,7 +48,8 @@ const DEFAULT_SOURCES: NewsSource[] = [
   { url: 'https://huggingface.co/blog/feed.xml', category: 'Open Source', source: 'Hugging Face Blog', maxItems: 15, fallbackUrls: [] },
 
   // --- Traditional Chinese (繁體中文) ---
-  { url: 'https://www.hkepc.com/rss', category: 'Consumer Tech', source: 'HKEPC Hardware', language: 'zh-HK', maxItems: 15, fallbackUrls: [] },
+  // HKEPC RSS feed is currently inaccessible from this environment (403/timeout). Disabled until resolved.
+  { url: 'https://www.hkepc.com/rss', category: 'Consumer Tech', source: 'HKEPC Hardware', language: 'zh-HK', maxItems: 15, enabled: false, fallbackUrls: [] },
   { url: 'https://unwire.hk/feed/', category: 'Startups', source: 'Unwire HK', language: 'zh-HK', maxItems: 15, fallbackUrls: [] },
   { url: 'https://technews.tw/feed/', category: 'AI', source: 'TechNews 科技新報', language: 'zh-TW', maxItems: 15, fallbackUrls: [] },
 ];
@@ -88,6 +96,7 @@ export const CATEGORY_MAP = [
   'Startups',
   'Consumer Tech',
   'AI',
+  'AI Blogs',
   'Innovation',
   'Open Source',
 ] as const;
