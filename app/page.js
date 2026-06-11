@@ -1,15 +1,16 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { RefreshCw, Moon, Sun, ExternalLink, Clock, Zap, Search, Bookmark, BookmarkCheck, Settings, ChevronDown, X, ArrowUpRight, MessageCircle, Rss, Bell, Check } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { RefreshCw, Moon, Sun, ExternalLink, Clock, Search, Bookmark, BookmarkCheck, Settings, X, ArrowUpRight, MessageCircle, Rss, SlidersHorizontal, MousePointer2 } from 'lucide-react';
 import Link from 'next/link';
 import ChatSidebar from './components/ChatSidebar';
 import ChatProviderSettings from './components/ChatProviderSettings';
 import FeedManager from './components/FeedManager';
 import DataImportExport from './components/DataImportExport';
 import NotificationSettings from './components/NotificationSettings';
-import * as NotificationStore from '@/lib/notification-store';
+import PhantomDome from './components/PhantomDome';
 import { getEnabledSources } from '@/lib/feed-store';
+import * as NotificationStore from '@/lib/notification-store';
 
 const CATEGORY_MAP = ['All', 'Startups', 'Consumer Tech', 'AI', 'Innovation', 'Open Source'];
 const LANGUAGES = ['English', '繁體中文'];
@@ -71,23 +72,23 @@ export default function Home() {
   const [selectedSources, setSelectedSources] = useState(null);
   const [dayRange, setDayRange] = useState(3);
   const [sortBy, setSortBy] = useState('newest');
-  const [darkMode, setDarkMode] = useState(false);
+  const [darkMode, setDarkMode] = useState(true);
   const [autoRefreshInterval, setAutoRefreshInterval] = useState(1800000);
   const [lastFetchTime, setLastFetchTime] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedLanguage, setSelectedLanguage] = useState('English');
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const searchTimeoutRef = useRef(null);
   const [bookmarks, setBookmarks] = useState([]);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [sourceFilterOpen, setSourceFilterOpen] = useState(false);
-  const [chatOpen, setChatOpen] = useState(true);
+  const [chatOpen, setChatOpen] = useState(false);
   const [chatProvider, setChatProvider] = useState(null);
   const [feedManagerOpen, setFeedManagerOpen] = useState(false);
   const [selectedArticles, setSelectedArticles] = useState(new Set());
   const [focusArticle, setFocusArticle] = useState(null);
   const [compareArticles, setCompareArticles] = useState(null);
-  const [chatLayoutMode, setChatLayoutMode] = useState('split');
+  const [selectedLanguage, setSelectedLanguage] = useState('English');
+  const [clock, setClock] = useState('');
 
   useEffect(() => {
     fetchNews();
@@ -102,7 +103,7 @@ export default function Home() {
   useEffect(() => {
     const savedSettings = loadSettings();
     if (savedSettings) {
-      setDarkMode(savedSettings.darkMode ?? false);
+      setDarkMode(savedSettings.darkMode ?? true);
       setAutoRefreshInterval(savedSettings.autoRefreshInterval ?? 1800000);
     }
   }, []);
@@ -112,76 +113,64 @@ export default function Home() {
   }, [darkMode, autoRefreshInterval]);
 
   useEffect(() => {
-    if (darkMode) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
+    if (darkMode) document.documentElement.classList.add('dark');
+    else document.documentElement.classList.remove('dark');
   }, [darkMode]);
 
   useEffect(() => {
     if (autoRefreshInterval === 0 || loading) return;
-
-    const interval = setInterval(async () => {
-      await fetchNews(true);
-    }, autoRefreshInterval);
-
+    const interval = setInterval(async () => { await fetchNews(true); }, autoRefreshInterval);
     return () => clearInterval(interval);
   }, [autoRefreshInterval, loading]);
+
+  // Debounce search
+  useEffect(() => {
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    searchTimeoutRef.current = setTimeout(() => setDebouncedSearchQuery(searchQuery), 300);
+    return () => clearTimeout(searchTimeoutRef.current);
+  }, [searchQuery]);
+
+  // Live clock
+  useEffect(() => {
+    function update() {
+      setClock(new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(new Date()));
+    }
+    update();
+    const id = setInterval(update, 1000);
+    return () => clearInterval(id);
+  }, []);
 
   async function fetchNews(isRefresh = false) {
     setLoading(true);
     setError(null);
     try {
       const params = new URLSearchParams();
-      
       if (isRefresh) params.set('refresh', 'true');
-      
-      if (dayRange < Infinity && dayRange !== undefined) {
-        params.set('days', String(dayRange));
-      }
-      
+      if (dayRange < Infinity && dayRange !== undefined) params.set('days', String(dayRange));
+
       const cats = selectedCategories || new Set(['All']);
-      if (!cats.has('All')) {
-        [...cats].forEach(cat => params.append('category', cat));
-      }
-      
-      if (searchQuery.trim()) {
-        params.set('q', searchQuery.trim());
-      }
+      if (!cats.has('All')) [...cats].forEach(cat => params.append('category', cat));
+      if (searchQuery.trim()) params.set('q', searchQuery.trim());
 
-      // Pass enabled feed sources so the server knows which feeds to fetch
       const enabledSources = getEnabledSources();
-      const sourceNames = enabledSources.map(s => s.source);
-      params.set('feeds', JSON.stringify(sourceNames));
+      params.set('feeds', JSON.stringify(enabledSources.map(s => s.source)));
+      params.set('lang', selectedLanguage === '繁體中文' ? 'zh-HK' : '');
 
-      if (selectedLanguage === '繁體中文') {
-        params.set('lang', 'zh-HK');
-      } else {
-        params.set('lang', '');
-      }
-      
       const queryString = params.toString();
       const url = `/api/news${queryString ? '?' + queryString : ''}`;
-
       const res = await fetch(url, { cache: 'no-store' });
       if (!res.ok) throw new Error('Failed to fetch news');
       const data = await res.json();
       setNews(data);
       setLastFetchTime(new Date());
 
-      // Check for notification matches
       try {
         const config = NotificationStore.loadNotificationConfig();
         if (config.enabled && ('Notification' in window)) {
           const result = NotificationStore.checkArticleMatches(data);
-          if (result.matchedArticles.length > 0) {
-            NotificationStore.showNotifications(result.matchedArticles);
-          }
+          if (result.matchedArticles.length > 0) NotificationStore.showNotifications(result.matchedArticles);
         }
-      } catch {
-        // Silently fail notification checks
-      }
+      } catch { /* ignore */ }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -192,17 +181,10 @@ export default function Home() {
   function toggleCategory(cat) {
     setSelectedCategories(prev => {
       const next = new Set(prev);
-      if (cat === 'All') {
-        next.clear();
-        next.add('All');
-      } else {
-        if (next.has(cat)) {
-          next.delete(cat);
-          if (next.size === 0) next.add('All');
-        } else {
-          next.delete('All');
-          next.add(cat);
-        }
+      if (cat === 'All') { next.clear(); next.add('All'); }
+      else {
+        if (next.has(cat)) { next.delete(cat); if (next.size === 0) next.add('All'); }
+        else { next.delete('All'); next.add(cat); }
       }
       return next;
     });
@@ -211,11 +193,8 @@ export default function Home() {
   function toggleSource(source) {
     setSelectedSources(prev => {
       const next = new Set(prev);
-      if (next.has(source)) {
-        next.delete(source);
-      } else {
-        next.add(source);
-      }
+      if (next.has(source)) next.delete(source);
+      else next.add(source);
       return next;
     });
   }
@@ -232,12 +211,9 @@ export default function Home() {
   function toggleBookmark(article) {
     const key = article.link || article.title;
     const exists = bookmarks.some(b => b.link === key);
-    let newBookmarks;
-    if (exists) {
-      newBookmarks = bookmarks.filter(b => b.link !== key);
-    } else {
-      newBookmarks = [...bookmarks, { ...article, bookmarkedAt: new Date().toISOString() }];
-    }
+    const newBookmarks = exists
+      ? bookmarks.filter(b => b.link !== key)
+      : [...bookmarks, { ...article, bookmarkedAt: new Date().toISOString() }];
     setBookmarks(newBookmarks);
     saveBookmarks(newBookmarks);
   }
@@ -265,19 +241,6 @@ export default function Home() {
     return new Date(a.pubDate || 0) - new Date(b.pubDate || 0);
   });
 
-  const topStories = sortedNews.slice(0, 5);
-  const restOfNews = sortedNews.slice(5);
-
-  function formatPubDate(pubDate) {
-    if (!pubDate) return '';
-    try {
-      const date = new Date(pubDate);
-      return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(date);
-    } catch {
-      return '';
-    }
-  }
-
   function formatRelativeTime(pubDate) {
     if (!pubDate) return '';
     try {
@@ -294,8 +257,8 @@ export default function Home() {
     }
   }
 
-  function isFavicon(url) {
-    return url?.includes('www.google.com/s2/favicons') ?? false;
+  function isFavicon(itemImage) {
+    return itemImage?.includes('www.google.com/s2/favicons') ?? false;
   }
 
   function toggleArticleSelection(item) {
@@ -315,552 +278,375 @@ export default function Home() {
 
   function handleCompareSelected() {
     if (selectedArticles.size < 2) return;
-    const selected = sortedNews.filter(item => {
-      const key = item.link || item.title;
-      return selectedArticles.has(key);
-    });
+    const selected = sortedNews.filter(item => selectedArticles.has(item.link || item.title));
     setChatOpen(true);
     setCompareArticles(selected.map(a => ({ title: a.title, source: a.source, category: a.category, description: a.description, link: a.link })));
   }
 
-  function handleLayoutToggle() {
-    setChatLayoutMode(prev => prev === 'overlay' ? 'split' : 'overlay');
+  const activeFilterCount =
+    (selectedCategories && !selectedCategories.has('All') ? selectedCategories.size : 0) +
+    ((selectedSources?.size ?? 0) > 0 ? 1 : 0) +
+    (dayRange !== 3 ? 1 : 0) +
+    (searchQuery.trim() ? 1 : 0) +
+    (selectedLanguage !== 'English' ? 1 : 0);
+
+  function renderCard(item, idx) {
+    const itemKey = item.link || item.title;
+    const isSelected = selectedArticles.has(itemKey);
+    const favicon = isFavicon(item.image);
+    const hasRealImage = item.image && !favicon;
+    return (
+      <div className={`phantom-card group relative flex flex-col h-full ${isSelected ? 'ring-1 ring-blue-400/50' : ''}`}>
+        {/* Selection checkbox */}
+        <button
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleArticleSelection(item); }}
+          className="absolute top-3 left-3 z-20 p-1 rounded-md bg-black/80 border border-white/10 opacity-0 group-hover:opacity-100 transition-opacity"
+          aria-label="Select article"
+        >
+          <div className={`w-3.5 h-3.5 rounded-sm flex items-center justify-center ${isSelected ? 'bg-blue-500' : 'border border-white/20'}`}>
+            {isSelected && <X size={8} className="text-white" />}
+          </div>
+        </button>
+
+        {item.gradientClass && (
+          <div className={`absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r ${item.gradientClass} z-10`} />
+        )}
+
+        <a href={item.link} target="_blank" rel="noopener noreferrer" className="flex flex-col h-full" draggable="false">
+          {/* Image region — uniform height; gradient placeholder when no image */}
+          <div className="relative h-[140px] flex-shrink-0 overflow-hidden bg-white/5 flex items-center justify-center">
+            {hasRealImage ? (
+              <img src={item.image} alt="" draggable="false" className="w-full h-full object-cover" loading="lazy" onError={e => { e.currentTarget.style.display = 'none'; }} />
+            ) : favicon ? (
+              <>
+                <div className="absolute inset-0 phantom-card-placeholder" />
+                <img src={item.image} alt="" draggable="false" className="relative h-8 object-contain" loading="lazy" onError={e => { e.currentTarget.style.display = 'none'; }} />
+              </>
+            ) : (
+              <div className="absolute inset-0 phantom-card-placeholder flex items-center justify-center">
+                <span className="text-2xl font-bold tracking-tight text-white/15 uppercase">{(item.source || '?').slice(0, 2)}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Content — flex column, footer pinned to bottom */}
+          <div className="flex flex-col flex-1 min-h-0 px-4 pt-3 pb-3">
+            <div className="flex items-center gap-2 mb-2 flex-shrink-0">
+              <span className="phantom-tag">{item.category}</span>
+              <span className="phantom-mono truncate">{item.source}</span>
+            </div>
+
+            <h3 className="text-[13px] font-medium leading-snug mb-1.5 group-hover:text-white transition-colors line-clamp-2 text-white/85 flex-shrink-0">
+              {item.title}
+            </h3>
+
+            {item.description && (
+              <p className="text-[11px] leading-relaxed text-white/30 line-clamp-2 flex-shrink-0">
+                {item.description}
+              </p>
+            )}
+
+            <div className="flex items-center justify-between pt-2 mt-auto border-t border-white/5 flex-shrink-0">
+              <div className="flex items-center gap-1.5 phantom-mono-dim pt-1">
+                <Clock size={9} />
+                {formatRelativeTime(item.pubDate)}
+              </div>
+              <div className="flex items-center gap-0.5 pt-1">
+                <button
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleAskAbout(item); }}
+                  aria-label="Ask about this article"
+                  className="p-1 rounded text-white/25 hover:text-blue-400 hover:bg-white/5 transition-colors opacity-0 group-hover:opacity-100"
+                >
+                  <MessageCircle size={11} />
+                </button>
+                <button
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleBookmark(item); }}
+                  aria-label={isBookmarked(itemKey) ? 'Remove bookmark' : 'Bookmark'}
+                  className={`p-1 rounded transition-colors ${isBookmarked(itemKey) ? 'text-blue-400' : 'text-white/25 hover:text-white/70 opacity-0 group-hover:opacity-100'}`}
+                >
+                  {isBookmarked(itemKey) ? <BookmarkCheck size={12} /> : <Bookmark size={12} />}
+                </button>
+                <ExternalLink size={11} className="text-white/25 opacity-0 group-hover:opacity-50 transition-opacity" />
+              </div>
+            </div>
+          </div>
+        </a>
+      </div>
+    );
   }
 
+  const currentRefreshLabel = REFRESH_INTERVALS.find(i => i.value === autoRefreshInterval)?.label ?? 'Off';
+
   return (
-    <div className="h-screen flex flex-col bg-background text-foreground transition-[background-color,color] duration-300" style={{ backgroundImage: darkMode ? undefined : 'linear-gradient(135deg, #f9fafb, #ebf5ff)' }}>
-      {/* Header */}
-      <header className="flex-shrink-0 z-40 border-b backdrop-blur-xl bg-card/70 dark:bg-background/80 border-border">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-3">
-            <h1 className="text-xl font-bold tracking-tight">Tech News Dashboard</h1>
-            {autoRefreshInterval > 0 && (
-                <span className="hidden sm:inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-800/30 text-green-800 dark:text-green-100">
-                <Zap size={10} className="animate-pulse" /> Auto-refresh ON
-              </span>
-            )}
+    <div id="main-content" className="fixed inset-0 bg-black text-white overflow-hidden phantom-stage-bg">
+      {/* ===== TOP BAR (corner-anchored, floats over the wall) ===== */}
+      <div className="phantom-topbar">
+        {/* Top-left: brand + live status */}
+        <div className="flex flex-col gap-1.5">
+          <Link href="/" className="text-sm font-semibold tracking-[0.22em] uppercase text-white/95">
+            Tech News
           </Link>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setSettingsOpen(!settingsOpen)}
-              className="p-2 rounded-lg transition-colors hover:bg-muted dark:hover:bg-accent"
-              aria-label="Settings"
-            >
-              <Settings size={18} />
-            </button>
-            {autoRefreshInterval > 0 && (
-                <span className="hidden md:inline text-xs px-2 py-0.5 rounded-full bg-secondary dark:bg-accent text-muted-foreground">
-                {REFRESH_INTERVALS.find(i => i.value === autoRefreshInterval)?.label}
-              </span>
+          <div className="phantom-mono-dim flex items-center gap-2">
+            {autoRefreshInterval > 0 ? (
+              <>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                Live · {currentRefreshLabel}
+              </>
+            ) : (
+              <>
+                <span className="w-1.5 h-1.5 rounded-full bg-white/30" />
+                Paused
+              </>
             )}
-            <Link href="/bookmarks" className="p-2 rounded-lg transition-colors hover:bg-muted dark:hover:bg-accent relative" aria-label="Bookmarks">
-              <Bookmark size={18} />
+          </div>
+        </div>
+
+        {/* Top-right: clock + controls */}
+        <div className="flex items-start gap-4">
+          <div className="hidden sm:flex flex-col items-end gap-1 mr-1">
+            <span className="phantom-mono text-white/70">{clock}</span>
+            <span className="phantom-mono-dim">
+              {sortedNews.length} stories · {new Set(sortedNews.map(n => n.source)).size} sources
+            </span>
+          </div>
+          <div className="flex items-center gap-1">
+            <Link href="/bookmarks" className="relative p-2 rounded-full hover:bg-white/10 text-white/50 hover:text-white transition-colors" aria-label="Bookmarks">
+              <Bookmark size={16} />
               {bookmarks.length > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 text-xs w-4 h-4 rounded-full flex items-center justify-center font-bold bg-blue-600 text-white">
+                <span className="absolute -top-0.5 -right-0.5 text-[9px] w-4 h-4 rounded-full flex items-center justify-center font-bold bg-white text-black">
                   {bookmarks.length}
                 </span>
               )}
             </Link>
-            <button
-              onClick={() => fetchNews(true)}
-              disabled={loading}
-              aria-label="Refresh now"
-              className="p-2 rounded-lg transition-colors hover:bg-muted dark:hover:bg-accent"
-            >
-              <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
+            <button onClick={() => fetchNews(true)} disabled={loading} aria-label="Refresh now" className="p-2 rounded-full hover:bg-white/10 text-white/50 hover:text-white transition-colors">
+              <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
             </button>
-            <button
-              onClick={() => setDarkMode(!darkMode)}
-              aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
-              className="p-2 rounded-lg transition-colors hover:bg-muted dark:hover:bg-accent"
-            >
-              {darkMode ? <Sun size={18} /> : <Moon size={18} />}
+            <button onClick={() => setDarkMode(!darkMode)} aria-label="Toggle theme" className="p-2 rounded-full hover:bg-white/10 text-white/50 hover:text-white transition-colors">
+              {darkMode ? <Sun size={16} /> : <Moon size={16} />}
+            </button>
+            <button onClick={() => setSettingsOpen(true)} aria-label="Settings" className="p-2 rounded-full hover:bg-white/10 text-white/50 hover:text-white transition-colors">
+              <Settings size={16} />
             </button>
           </div>
         </div>
+      </div>
 
-        {/* Settings Panel */}
-        {settingsOpen && (
-          <div className="border-t border-border dark:border-border bg-card/90 dark:bg-background/90 backdrop-blur-xl">
-            <div className="max-w-6xl mx-auto px-4 py-3">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-medium text-muted-foreground">Auto-refresh interval</span>
-                  <button onClick={() => setSettingsOpen(false)} aria-label="Close settings" className="p-1 rounded hover:bg-muted dark:hover:bg-accent text-muted-foreground">
-                  <X size={14} />
-                </button>
-              </div>
-              <div className="flex gap-2">
-                {REFRESH_INTERVALS.map(interval => (
-                  <button
-                    key={interval.value}
-                    onClick={() => setAutoRefreshInterval(interval.value)}
-                    touch-action="manipulation"
-                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                      autoRefreshInterval === interval.value
-                        ? 'bg-blue-600 text-white dark:bg-blue-700'
-                        : 'bg-secondary hover:bg-muted text-muted-foreground border-border dark:bg-accent dark:hover:bg-muted/80 dark:text-muted-foreground dark:border-border'
-                    }`}
-                  >
-                    {interval.label}
-                  </button>
-                ))}
-              </div>
-
-              {/* Manage Feeds Button */}
-              <div className="mt-4 pt-3 border-t border-border flex items-center justify-between">
-                <button
-                  onClick={() => setFeedManagerOpen(!feedManagerOpen)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${feedManagerOpen ? 'bg-blue-600 text-white dark:bg-blue-700' : 'bg-secondary hover:bg-muted text-muted-foreground border-border dark:bg-accent dark:hover:bg-muted/80 dark:text-muted-foreground dark:border-border'}`}
-                >
-                  <Rss size={14} className="mr-1 inline" />
-                  Manage Feeds
-                </button>
-              </div>
-
-              {/* Feed Manager */}
-              {feedManagerOpen && (
-                <div className="mt-3 pt-2 border-t border-border">
-                  <FeedManager darkMode={darkMode} onFeedsChange={() => fetchNews()} />
-                </div>
-              )}
-
-              {/* Data Import/Export */}
-              <div className="mt-4 pt-3 border-t border-border">
-                <DataImportExport darkMode={darkMode} />
-              </div>
-
-              {/* Notification Settings */}
-              <div className="mt-4 pt-3 border-t border-border">
-                <NotificationSettings darkMode={darkMode} />
-              </div>
-
-              {/* Chat Provider Settings */}
-              <div className="mt-4 pt-3 border-t border-border">
-                <ChatProviderSettings darkMode={darkMode} onProviderChange={setChatProvider} />
-              </div>
-            </div>
-          </div>
-        )}
-      </header>
-
-      {/* Content area */}
-      <div className={`flex-1 min-h-0 ${chatLayoutMode === 'split' ? 'flex' : ''}`}>
-      {/* Main Content */}
-      <main className={`${chatLayoutMode === 'split' ? 'flex-1 min-w-0' : ''} overflow-y-auto px-4 py-5`}>
-        <div className="max-w-6xl mx-auto">
-        {/* Search Bar */}
-        <div className="relative mb-4">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground dark:text-muted-foreground" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            aria-label="Search articles by title or description"
-            placeholder="Search articles by title or description..."
-            className="w-full pl-9 pr-4 py-2.5 rounded-xl text-sm border transition-[border-color,background-color,color] bg-card dark:bg-card border-border dark:border-border text-foreground placeholder:text-muted-foreground focus-visible:ring-2"
-            style={{ '--tw-ring-color': darkMode ? 'var(--primary-700)' : 'var(--primary-600)' }}
-          />
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-xs px-2 py-0.5 rounded-md text-muted-foreground hover:text-foreground"
-            >
-              Clear
-            </button>
-          )}
+      {/* ===== THE WALL ===== */}
+      {loading && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center z-10">
+          <RefreshCw size={24} className="animate-spin opacity-30 mb-4" />
+          <span className="phantom-mono-dim">Loading the wall</span>
         </div>
+      )}
 
-        {/* Filters */}
-        <div className="flex flex-wrap items-center gap-2 mb-5">
-          {/* Language tabs */}
-          <span className="text-xs text-muted-foreground">Language:</span>
-          {LANGUAGES.map(lang => (
-            <button
-              key={lang}
-              onClick={() => setSelectedLanguage(lang)}
-              touch-action="manipulation"
-              className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
-                selectedLanguage === lang
-                  ? 'bg-blue-600 text-white dark:bg-blue-700'
-                  : 'bg-secondary hover:bg-muted text-muted-foreground border-border dark:bg-accent dark:hover:bg-muted/80 dark:text-muted-foreground dark:border-border'
-              }`}
-            >
-              {lang}
-            </button>
-          ))}
+      {error && !loading && (
+        <div className="absolute inset-0 flex items-center justify-center z-10">
+          <div className="phantom-panel max-w-sm text-center">
+            <p className="text-sm text-white/70 mb-4">{error}</p>
+            <button onClick={() => fetchNews(true)} className="phantom-pill active">Try again</button>
+          </div>
+        </div>
+      )}
 
-          {/* Categories */}
-          <span className="text-xs text-muted-foreground">Categories:</span>
+      {!loading && !error && sortedNews.length === 0 && (
+        <div className="absolute inset-0 flex items-center justify-center z-10">
+          <span className="phantom-mono-dim">{searchQuery ? 'No articles match your search' : 'No news found'}</span>
+        </div>
+      )}
+
+      {!loading && !error && sortedNews.length > 0 && (
+        <PhantomDome
+          items={sortedNews}
+          renderItem={renderCard}
+          cardWidth={300}
+          cardHeight={300}
+          radius={2100}
+          anglePerColumn={13}
+          maxArc={150}
+          maxTilt={34}
+        />
+      )}
+
+      {/* Drag hint */}
+      {!loading && !error && sortedNews.length > 0 && (
+        <div className="phantom-drag-hint fixed bottom-24 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 phantom-mono-dim pointer-events-none">
+          <MousePointer2 size={11} />
+          Drag or scroll to explore
+        </div>
+      )}
+
+      {/* ===== BOTTOM NAV (categories) ===== */}
+      {!loading && (
+        <nav className="phantom-bottomnav">
           {CATEGORY_MAP.map(cat => (
             <button
               key={cat}
               onClick={() => toggleCategory(cat)}
-              className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
-                (selectedCategories || new Set(['All'])).has(cat)
-                  ? 'bg-blue-600 text-white dark:bg-blue-700'
-                  : 'bg-secondary hover:bg-muted text-muted-foreground border-border dark:bg-accent dark:hover:bg-muted/80 dark:text-muted-foreground dark:border-border'
-              }`}
-              touch-action="manipulation"
+              className={`phantom-nav-pill ${(selectedCategories || new Set(['All'])).has(cat) ? 'active' : ''}`}
             >
               {cat}
             </button>
           ))}
+        </nav>
+      )}
 
-          {/* Day Range */}
-          <span className="text-xs ml-3 text-muted-foreground">Time:</span>
-          {DAY_RANGES.map(range => (
-            <button
-              key={range.label}
-              onClick={() => setDayRange(range.days)}
-              touch-action="manipulation"
-              className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
-                dayRange === range.days
-                  ? 'bg-blue-600 text-white dark:bg-blue-700'
-                  : 'bg-secondary hover:bg-muted text-muted-foreground border-border dark:bg-accent dark:hover:bg-muted/80 dark:text-muted-foreground dark:border-border'
-              }`}
-            >
-              {range.label}
+      {/* ===== BOTTOM-LEFT: search ===== */}
+      <div className="fixed bottom-[22px] left-7 z-50 flex items-center gap-2">
+        <div className="phantom-search flex items-center px-3 py-2 w-[180px] focus-within:w-[260px] transition-[width] duration-300">
+          <Search size={13} className="text-white/30 flex-shrink-0" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search"
+            aria-label="Search articles"
+            className="bg-transparent outline-none text-xs text-white placeholder:text-white/25 ml-2 w-full"
+          />
+          {searchQuery && (
+            <button onClick={() => setSearchQuery('')} aria-label="Clear search" className="text-white/40 hover:text-white">
+              <X size={11} />
             </button>
-          ))}
+          )}
+        </div>
+      </div>
 
-          {/* Sort */}
-          <span className="text-xs ml-3 text-muted-foreground">Sort:</span>
-          <div className="flex gap-1">
-            <button
-              onClick={() => setSortBy('newest')}
-              touch-action="manipulation"
-              className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
-                sortBy === 'newest'
-                  ? 'bg-blue-600 text-white dark:bg-blue-700'
-                  : 'bg-secondary hover:bg-muted text-muted-foreground border-border dark:bg-accent dark:hover:bg-muted/80 dark:text-muted-foreground dark:border-border'
-              }`}
-            >
-              Newest
-            </button>
-            <button
-              onClick={() => setSortBy('oldest')}
-              touch-action="manipulation"
-              className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
-                sortBy === 'oldest'
-                  ? 'bg-blue-600 text-white dark:bg-blue-700'
-                  : 'bg-secondary hover:bg-muted text-muted-foreground border-border dark:bg-accent dark:hover:bg-muted/80 dark:text-muted-foreground dark:border-border'
-              }`}
-            >
-              Oldest
-            </button>
-          </div>
+      {/* ===== BOTTOM-RIGHT: Filter ===== */}
+      <button onClick={() => setFiltersOpen(true)} className="phantom-corner-btn bottom-[22px] right-7" style={{ position: 'fixed' }}>
+        <SlidersHorizontal size={13} />
+        Filter
+        {activeFilterCount > 0 && (
+          <span className="ml-1 text-[9px] w-4 h-4 rounded-full flex items-center justify-center font-bold bg-white text-black">
+            {activeFilterCount}
+          </span>
+        )}
+      </button>
 
-          {/* Source Filter */}
-          <span className="text-xs ml-3 text-muted-foreground">Source:</span>
-          {allSources.length > 0 && (
-            <div className="relative">
-              <button
-                onClick={() => setSourceFilterOpen(!sourceFilterOpen)}
-                touch-action="manipulation"
-                className={`px-3 py-1 rounded-full text-xs font-medium transition-all flex items-center gap-1 ${
-                  sourceFilterOpen
-                    ? 'bg-secondary dark:bg-accent text-foreground border-border'
-                    : selectedSources && selectedSources.size > 0
-                      ? 'bg-blue-600/15 text-blue-600 border-blue-200 dark:bg-blue-700/15 dark:text-blue-300 dark:border-blue-700'
-                      : 'bg-secondary hover:bg-muted text-muted-foreground border-border dark:bg-accent dark:hover:bg-muted/80 dark:text-muted-foreground dark:border-border'
-                }`}
-              >
-                {(selectedSources?.size ?? 0) > 0 ? (
-                  [...selectedSources].slice(0, 2).join(', ') + ((selectedSources?.size ?? 0) > 2 ? '...' : '')
-                ) : 'All'}
-                <ChevronDown size={12} />
+      {/* ===== FILTER OVERLAY ===== */}
+      {filtersOpen && (
+        <div className="phantom-overlay" onClick={() => setFiltersOpen(false)}>
+          <div className="phantom-panel phantom-scroll" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-sm font-semibold tracking-[0.18em] uppercase">Filters</h2>
+              <button onClick={() => setFiltersOpen(false)} className="p-1.5 rounded-full hover:bg-white/10 text-white/50 hover:text-white" aria-label="Close">
+                <X size={16} />
               </button>
-              {sourceFilterOpen && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setSourceFilterOpen(false)} />
-                  <div className="absolute top-full left-0 mt-1 z-50 p-2 rounded-xl border shadow-lg min-w-[200px] max-h-[300px] overflow-y-auto bg-popover dark:bg-card border-border">
+            </div>
+
+            <div className="space-y-6">
+              <div>
+                <p className="phantom-mono-dim mb-2.5">Language</p>
+                <div className="flex flex-wrap gap-2">
+                  {LANGUAGES.map(lang => (
+                    <button key={lang} onClick={() => setSelectedLanguage(lang)} className={`phantom-pill ${selectedLanguage === lang ? 'active' : ''}`}>{lang}</button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <p className="phantom-mono-dim mb-2.5">Category</p>
+                <div className="flex flex-wrap gap-2">
+                  {CATEGORY_MAP.map(cat => (
+                    <button key={cat} onClick={() => toggleCategory(cat)} className={`phantom-pill ${(selectedCategories || new Set(['All'])).has(cat) ? 'active' : ''}`}>{cat}</button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <p className="phantom-mono-dim mb-2.5">Time range</p>
+                <div className="flex flex-wrap gap-2">
+                  {DAY_RANGES.map(range => (
+                    <button key={range.label} onClick={() => setDayRange(range.days)} className={`phantom-pill ${dayRange === range.days ? 'active' : ''}`}>{range.label}</button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <p className="phantom-mono-dim mb-2.5">Sort</p>
+                <div className="flex gap-2">
+                  <button onClick={() => setSortBy('newest')} className={`phantom-pill ${sortBy === 'newest' ? 'active' : ''}`}>Newest</button>
+                  <button onClick={() => setSortBy('oldest')} className={`phantom-pill ${sortBy === 'oldest' ? 'active' : ''}`}>Oldest</button>
+                </div>
+              </div>
+
+              {allSources.length > 0 && (
+                <div>
+                  <p className="phantom-mono-dim mb-2.5">Sources ({allSources.length})</p>
+                  <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto phantom-scroll">
                     {allSources.map(source => (
-                      <button
-                        key={source}
-                        onClick={() => toggleSource(source)}
-                        touch-action="manipulation"
-                        className={`w-full text-left px-3 py-1.5 rounded-lg text-xs transition-colors flex items-center gap-2 ${
-                          ((selectedSources || new Set()).has(source))
-                            ? 'bg-blue-600/15 dark:bg-blue-700/15 text-blue-600 dark:text-blue-300'
-                            : 'hover:bg-muted dark:hover:bg-accent text-muted-foreground dark:text-muted-foreground'
-                        }`}
-                      >
-                        <span className={`w-3 h-3 rounded border flex items-center justify-center flex-shrink-0 ${
-                          (selectedSources || new Set()).has(source)
-                            ? 'bg-blue-600 dark:bg-blue-700 border-blue-600 dark:border-blue-700'
-                            : 'border-border dark:border-border'
-                        }`}>
-                          {(selectedSources || new Set()).has(source) && <X size={8} className="text-white" />}
-                        </span>
-                        {source}
-                      </button>
+                      <button key={source} onClick={() => toggleSource(source)} className={`phantom-pill ${(selectedSources || new Set()).has(source) ? 'active' : ''}`}>{source}</button>
                     ))}
                   </div>
-                </>
+                </div>
               )}
             </div>
-          )}
 
-          {/* Active filter count */}
-          {(selectedSources && selectedSources.size > 0 || dayRange < Infinity || !selectedCategories || !selectedCategories.has('All') || searchQuery.trim()) && (
-            <span className="text-xs text-muted-foreground">
-              ({sortedNews.length} results)
-            </span>
-          )}
-
-          {/* Reset button */}
-          {((selectedSources?.size ?? 0) > 0 || dayRange !== 3 || !selectedCategories?.has('All') || searchQuery.trim() || sortBy !== 'newest') && (
-            <button
-              onClick={handleResetFilters}
-              className="px-2 py-1 rounded-full text-xs font-medium border border-border bg-secondary hover:bg-muted dark:bg-accent dark:hover:bg-muted/80 text-muted-foreground"
-            >
-              Reset
-            </button>
-          )}
-        </div>
-
-        {/* Loading / Error States */}
-        {loading && (
-          <div className="flex flex-col items-center justify-center py-16">
-            <RefreshCw size={32} className="animate-spin opacity-40 mb-3" />
-            <span className={`text-sm ${darkMode ? 'opacity-40' : 'opacity-50'}`}>Loading news...</span>
-          </div>
-        )}
-
-        {error && !loading && (
-          <div className="p-5 rounded-xl mb-5 bg-destructive/10 dark:bg-destructive/20 border border-destructive dark:border-destructive/60">
-            <p className="text-sm">{error}</p>
-            <button onClick={() => fetchNews(true)} className="mt-2 px-3 py-1.5 text-sm rounded-lg font-medium bg-destructive/20 dark:bg-destructive/30 text-destructive hover:bg-destructive/30 dark:hover:bg-destructive/40">Try again</button>
-          </div>
-        )}
-
-        {/* Executive Summary - Today's Top Stories */}
-        {!loading && !error && topStories.length > 0 && (
-          <section className="mb-8">
-            <h2 className="text-sm font-bold uppercase tracking-wider mb-3 text-muted-foreground">Today's Top Stories</h2>
-            <div className="grid grid-cols-3 md:grid-cols-5 gap-3">
-              {topStories.map((item, idx) => {
-                const itemKey = item.link || item.title;
-                const isSelected = selectedArticles.has(itemKey);
-                return (
-                  <a
-                    key={idx}
-                    href={item.link}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={`block p-4 rounded-xl border transition-all hover:shadow-md group relative overflow-hidden bg-card dark:bg-card ${isSelected ? 'border-blue-500 ring-1 ring-blue-500/30' : 'border-border dark:border-border'} hover:shadow-lg`}
-                  >
-                    {item.gradientClass && (
-                      <div className={`absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r ${item.gradientClass}`} />
-                    )}
-                    {/* Selection checkbox */}
-                    <button
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleArticleSelection(item); }}
-                      className="absolute top-2 left-2 z-10 p-1 rounded-md bg-card dark:bg-card border border-border opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      <div className={`w-3.5 h-3.5 rounded-sm flex items-center justify-center ${isSelected ? 'bg-blue-600' : 'border border-muted-foreground/40'}`}>
-                        {isSelected && <Check size={10} className="text-white" />}
-                      </div>
-                    </button>
-                    {item.image && (
-                      <div className={`mb-3 rounded-lg overflow-hidden bg-muted dark:bg-accent flex items-center justify-center ${isFavicon(item.image) ? 'h-12' : ''}`}>
-                        <img src={item.image} alt="" className={`w-full ${isFavicon(item.image) ? 'h-8 object-contain p-1.5' : 'h-20 object-cover'}`} loading="lazy" onError={e => e.currentTarget.style.display = 'none'} />
-                      </div>
-                    )}
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1.5 text-xs text-muted-foreground">
-                          <span className={`px-2 py-0.5 rounded-full font-medium ${darkMode ? 'bg-blue-700/15 text-blue-300' : 'bg-blue-50 text-blue-600 border-blue-200'}`}>{item.category}</span>
-                          <span className="w-1 h-1 rounded-full bg-muted dark:bg-accent" aria-hidden="true" />
-                          <span>{item.source}</span>
-                          {item.language && (
-                            <>
-                              <span className="w-1 h-1 rounded-full bg-muted dark:bg-accent" aria-hidden="true" />
-                            </>
-                          )}
-                        </div>
-                        <h3 className="text-sm font-semibold leading-snug mb-1.5 group-hover:underline truncate">{item.title}</h3>
-                        {item.description && (
-                          <p className="text-xs leading-relaxed text-muted-foreground line-clamp-2">
-                            {item.description}
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1 flex-shrink-0">
-                        <button
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleAskAbout(item); }}
-                          aria-label="Ask about this article"
-                          className="p-1 rounded-lg text-muted-foreground hover:text-blue-600 dark:hover:text-blue-400 hover:bg-muted dark:hover:bg-accent transition-colors opacity-0 group-hover:opacity-100"
-                        >
-                          <MessageCircle size={12} />
-                        </button>
-                        <button
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleBookmark(item); }}
-                          aria-label={isBookmarked(item.link || item.title) ? 'Remove bookmark' : 'Bookmark article'}
-                        className={`p-1 rounded-lg transition-colors ${
-                          isBookmarked(item.link || item.title)
-                            ? 'dark:text-blue-300 dark:hover:bg-accent text-blue-600 hover:bg-blue-50'
-                            : 'text-muted-foreground dark:text-muted-foreground/50 hover:text-foreground hover:bg-muted dark:hover:bg-accent'
-                        }`}
-                      >
-                        {isBookmarked(item.link || item.title) ? <BookmarkCheck size={14} /> : <Bookmark size={14} />}
-                      </button>
-                      <ExternalLink size={12} className={`opacity-0 group-hover:opacity-30 transition-opacity`} />
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
-                    <Clock size={12} />
-                    {formatPubDate(item.pubDate)}
-                    <span className="opacity-50">·</span>
-                    <span>{formatRelativeTime(item.pubDate)}</span>
-                  </div>
-                </a>
-              );
-            })}
+            <div className="flex items-center justify-between mt-7 pt-5 border-t border-white/10">
+              <span className="phantom-mono-dim">{sortedNews.length} results</span>
+              <div className="flex gap-2">
+                <button onClick={handleResetFilters} className="phantom-pill">Reset all</button>
+                <button onClick={() => setFiltersOpen(false)} className="phantom-pill active">Done</button>
+              </div>
             </div>
-          </section>
-        )}
-
-        {/* News Cards */}
-        {!loading && !error && sortedNews.length === 0 && (
-          <div className="text-center py-16 opacity-40">
-            <p>{searchQuery ? 'No articles match your search.' : 'No news found with current filters.'}</p>
           </div>
-        )}
-
-        {!loading && !error && restOfNews.length === 0 && sortedNews.length > 0 && (
-          <div className="text-center py-8 opacity-40">
-            <p>All articles shown above as top stories.</p>
-          </div>
-        )}
-
-        {!loading && restOfNews.length > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-foreground">
-            {restOfNews.map((item, idx) => {
-              const itemKey = item.link || item.title;
-              const isSelected = selectedArticles.has(itemKey);
-              return (
-                <a
-                  key={idx}
-                  href={item.link}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={`block p-4 rounded-xl border transition-all hover:shadow-md group relative overflow-hidden bg-card dark:bg-card ${isSelected ? 'border-blue-500 ring-1 ring-blue-500/30' : 'border-border dark:border-border'} hover:shadow-lg`}
-                >
-                  {item.gradientClass && (
-                    <div className={`absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r ${item.gradientClass}`} />
-                  )}
-                  {/* Selection checkbox */}
-                  <button
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleArticleSelection(item); }}
-                    className="absolute top-2 left-2 z-10 p-1 rounded-md bg-card dark:bg-card border border-border opacity-0 group-hover:opacity-100 transition-opacity"
-                  >
-                    <div className={`w-3.5 h-3.5 rounded-sm flex items-center justify-center ${isSelected ? 'bg-blue-600' : 'border border-muted-foreground/40'}`}>
-                      {isSelected && <Check size={10} className="text-white" />}
-                    </div>
-                  </button>
-                  {item.image && (
-                    <div className={`mb-3 rounded-lg overflow-hidden bg-muted dark:bg-accent flex items-center justify-center ${isFavicon(item.image) ? 'h-12' : ''}`}>
-                      <img
-                        src={item.image}
-                        alt=""
-                        className={`w-full ${isFavicon(item.image) ? 'h-8 object-contain p-1.5' : 'h-40 object-cover'}`}
-                        loading="lazy"
-                        onError={e => e.currentTarget.style.display = 'none'}
-                      />
-                    </div>
-                  )}
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1.5 text-xs text-muted-foreground">
-                        <span className={`px-2 py-0.5 rounded-full font-medium ${darkMode ? 'bg-blue-700/15 text-blue-300' : 'bg-blue-50 text-blue-600 border-blue-200'}`}>{item.category}</span>
-                        <span className="w-1 h-1 rounded-full bg-muted dark:bg-accent" aria-hidden="true" />
-                        <span>{item.source}</span>
-                        {item.language && (
-                          <>
-                            <span className="w-1 h-1 rounded-full bg-muted dark:bg-accent" aria-hidden="true" />
-                            <span className="text-orange-400">{item.language}</span>
-                          </>
-                        )}
-                      </div>
-                      <h2 className="text-sm font-semibold leading-snug mb-1.5 group-hover:underline truncate">{item.title}</h2>
-                      {item.description && (
-                        <p className="text-xs leading-relaxed text-muted-foreground line-clamp-2">
-                          {item.description}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <button
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleAskAbout(item); }}
-                        aria-label="Ask about this article"
-                        className="p-1 rounded-lg text-muted-foreground hover:text-blue-600 dark:hover:text-blue-400 hover:bg-muted dark:hover:bg-accent transition-colors opacity-0 group-hover:opacity-100"
-                      >
-                        <MessageCircle size={12} />
-                      </button>
-                      <button
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleBookmark(item); }}
-                        aria-label={isBookmarked(item.link || item.title) ? 'Remove bookmark' : 'Bookmark article'}
-                        className={`p-1.5 rounded-lg transition-colors ${
-                          isBookmarked(item.link || item.title)
-                            ? 'dark:text-blue-300 dark:hover:bg-accent text-blue-600 hover:bg-blue-50'
-                            : 'text-muted-foreground dark:text-muted-foreground/50 hover:text-foreground hover:bg-muted dark:hover:bg-accent'
-                        }`}
-                      >
-                        {isBookmarked(item.link || item.title) ? <BookmarkCheck size={16} /> : <Bookmark size={16} />}
-                      </button>
-                      <ExternalLink size={14} className={`opacity-0 group-hover:opacity-30 transition-opacity`} />
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
-                    <Clock size={12} />
-                    {formatPubDate(item.pubDate)}
-                    <span className="opacity-50">·</span>
-                    <span>{formatRelativeTime(item.pubDate)}</span>
-                  </div>
-                </a>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Footer */}
-        {!loading && sortedNews.length > 0 && (
-          <div className="mt-6 text-center text-xs text-muted-foreground">
-            {sortedNews.length} articles from {new Set(sortedNews.map(n => n.source)).size} sources · 
-            Last updated: {lastFetchTime ? new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' }).format(lastFetchTime) : new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' }).format(new Date())}
-          </div>
-        )}
         </div>
-      </main>
+      )}
 
-      {/* Floating Compare Button */}
+      {/* ===== SETTINGS OVERLAY ===== */}
+      {settingsOpen && (
+        <div className="phantom-overlay" onClick={() => setSettingsOpen(false)}>
+          <div className="phantom-panel phantom-scroll" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-sm font-semibold tracking-[0.18em] uppercase">Settings</h2>
+              <button onClick={() => setSettingsOpen(false)} className="p-1.5 rounded-full hover:bg-white/10 text-white/50 hover:text-white" aria-label="Close">
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              <div>
+                <p className="phantom-mono-dim mb-2.5">Auto-refresh interval</p>
+                <div className="flex flex-wrap gap-2">
+                  {REFRESH_INTERVALS.map(interval => (
+                    <button key={interval.value} onClick={() => setAutoRefreshInterval(interval.value)} className={`phantom-pill ${autoRefreshInterval === interval.value ? 'active' : ''}`}>{interval.label}</button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-white/10">
+                <button onClick={() => setFeedManagerOpen(!feedManagerOpen)} className={`phantom-pill ${feedManagerOpen ? 'active' : ''}`}>
+                  <Rss size={12} className="mr-1.5 inline" /> Manage Feeds
+                </button>
+                {feedManagerOpen && (
+                  <div className="mt-4"><FeedManager darkMode={true} onFeedsChange={() => fetchNews()} /></div>
+                )}
+              </div>
+
+              <div className="pt-4 border-t border-white/10"><DataImportExport darkMode={true} /></div>
+              <div className="pt-4 border-t border-white/10"><NotificationSettings darkMode={true} /></div>
+              <div className="pt-4 border-t border-white/10"><ChatProviderSettings darkMode={true} onProviderChange={setChatProvider} /></div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== Floating Compare Button ===== */}
       {selectedArticles.size >= 2 && (
-        <button
-          onClick={handleCompareSelected}
-          className="fixed bottom-16 right-6 z-40 px-3 py-2 rounded-full shadow-lg bg-blue-600 text-white dark:bg-blue-700 hover:opacity-90 transition-all text-xs font-medium flex items-center gap-1.5"
-        >
+        <button onClick={handleCompareSelected} className="fixed bottom-20 right-7 z-50 px-4 py-2.5 rounded-full shadow-lg phantom-fab text-xs tracking-wider uppercase flex items-center gap-2">
           <ArrowUpRight size={12} />
-          Compare {selectedArticles.size} articles
+          Compare {selectedArticles.size}
         </button>
       )}
 
-      {/* Floating Chat Toggle (hidden in split mode) */}
-      {chatLayoutMode === 'overlay' && (
-        <button
-          onClick={() => setChatOpen(!chatOpen)}
-          className={`fixed bottom-6 right-6 z-40 p-3 rounded-full shadow-lg transition-all ${
-            chatOpen
-              ? 'bg-blue-600 text-white dark:bg-blue-700'
-              : 'bg-card dark:bg-card text-muted-foreground border border-border hover:bg-muted dark:hover:bg-accent'
-          }`}
-          aria-label="Toggle chat"
-        >
-          <MessageCircle size={20} />
-        </button>
-      )}
+      {/* ===== Chat toggle (overlay) ===== */}
+      <button
+        onClick={() => setChatOpen(!chatOpen)}
+        className={`fixed top-1/2 -translate-y-1/2 right-0 z-50 px-2 py-4 rounded-l-xl transition-all ${chatOpen ? 'bg-white text-black' : 'bg-white/8 backdrop-blur-xl text-white/60 border border-r-0 border-white/10 hover:bg-white/15'}`}
+        aria-label="Toggle chat"
+      >
+        <MessageCircle size={18} />
+      </button>
 
-      {/* Chat Sidebar */}
+      {/* ===== Chat Sidebar (overlay) ===== */}
       <ChatSidebar
         open={chatOpen}
         onClose={() => setChatOpen(false)}
@@ -869,10 +655,9 @@ export default function Home() {
         darkMode={darkMode}
         focusArticle={focusArticle}
         compareArticles={compareArticles}
-        layoutMode={chatLayoutMode}
-        onLayoutToggle={handleLayoutToggle}
+        layoutMode="overlay"
+        onLayoutToggle={() => {}}
       />
-      </div>
     </div>
   );
 }
