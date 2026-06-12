@@ -29,8 +29,8 @@ import { useRef, useEffect, useState, useCallback } from 'react';
 export default function PhantomDome({
   items = [],
   renderItem,
-  cardWidth = 300,
-  cardHeight = 300,
+  cardWidth = 320,
+  cardHeight = 320,
   radius = 2100,
   anglePerColumn = 13,
   maxArc = 150,
@@ -51,28 +51,25 @@ export default function PhantomDome({
 
   // ── Grid sizing ────────────────────────────────────────────────
   const RAD = 180 / Math.PI;
-  // Angular gaps so tile arc length ≈ tile size + a small breathing gap.
-  const gapPx = 26;
+  const MAX_ROWS = 4;
+  const gapPx = 36;
+  const rowGapPx = 52;
   const colStep = Math.min(anglePerColumn, ((cardWidth + gapPx) / radius) * RAD);
-  const rowStep = ((cardHeight + gapPx) / radius) * RAD;
+  const rowStep = ((cardHeight + rowGapPx) / radius) * RAD;
 
-  // How many columns can fit within maxArc?
-  const columnCount = Math.max(
-    3,
-    Math.min(
-      Math.floor(maxArc / colStep) + 1,
-      Math.max(3, Math.ceil(Math.sqrt(items.length) * 1.4)),
-    ),
-  );
+  // Respect both the geometric arc limit and the row-cap.
+  const maxColsByArc = Math.floor(maxArc / colStep) + 1;
+  const neededCols = Math.ceil(items.length / MAX_ROWS);
+  const columnCount = Math.max(3, Math.min(maxColsByArc, neededCols));
 
-  // Distribute items column-major (each column = vertical strip)
+  // Distribute items column-major (fill each column top-to-bottom first)
   const columns = Array.from({ length: columnCount }, () => []);
   items.forEach((item, i) => {
-    columns[i % columnCount].push({ item, index: i });
+    const col = Math.floor(i / MAX_ROWS);
+    if (col < columnCount) columns[col].push({ item, index: i });
   });
 
   const midCol = (columnCount - 1) / 2;
-  const rowCountMax = Math.max(...columns.map(c => c.length), 1);
 
   // ── Transform application ──────────────────────────────────────
   const applyTransform = useCallback(() => {

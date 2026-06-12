@@ -141,13 +141,13 @@
 .phantom-cylinder-scene {
   position: absolute;
   inset: 0;
-  perspective: 1500px;
-  perspective-origin: 50% 50%;
+  perspective: 2000px;
+  perspective-origin: 50% 46%;
 }
 
 .phantom-cylinder-stage {
   position: absolute;
-  top: 50%;
+  top: 52%;
   left: 50%;
   width: 0;
   height: 0;
@@ -169,7 +169,7 @@
 }
 
 .phantom-tile:hover {
-  transform: var(--tile-rot) translateZ(calc(var(--tile-z) + 200px)) scale(1.02);
+  transform: var(--tile-rot) translateZ(calc(var(--tile-z) + 290px)) scale(1.04);
   z-index: 30;
 }
 
@@ -177,6 +177,14 @@
 .phantom-tile > .phantom-card {
   width: 100%;
   height: 100%;
+}
+
+/* Dramatic hover: subtle image zoom + brightness lift */
+.phantom-tile:hover .phantom-card img,
+.phantom-tile:hover .phantom-card-placeholder {
+  transform: scale(1.06);
+  filter: brightness(1.06);
+  transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), filter 0.6s ease;
 }
 
 .phantom-cylinder-cell:hover .phantom-card,
@@ -240,9 +248,11 @@
 /* Gradient placeholder for cards with no real image (uniform tiles) */
 .phantom-card-placeholder {
   background:
+    linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px),
     radial-gradient(circle at 30% 25%, oklch(0.22 0.06 264 / 0.5), transparent 60%),
-    radial-gradient(circle at 75% 80%, oklch(0.2 0.05 300 / 0.45), transparent 55%),
     linear-gradient(135deg, oklch(0.12 0.01 264), oklch(0.08 0 0));
+  background-size: 4px 4px, 4px 4px, auto, auto;
 }
 
 /* Top stories - larger cards */
@@ -470,10 +480,10 @@
   gap: 2px;
   padding: 5px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.04);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .phantom-nav-pill {

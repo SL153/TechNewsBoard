@@ -106,11 +106,6 @@ export default function BookmarksPage() {
                     <span>{item.source}</span>
                   </div>
                   <h2 className="text-sm font-semibold leading-snug mb-1.5 group-hover:underline truncate">{item.title}</h2>
-                  {item.description && (
-                    <p className="text-xs leading-relaxed text-muted-foreground line-clamp-2">
-                      {item.description}
-                    </p>
-                  )}
                 </div>
                 <button
                   onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeBookmark(item.link); }}

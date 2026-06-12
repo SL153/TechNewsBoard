@@ -308,13 +308,22 @@ export default function Home() {
           </div>
         </button>
 
+        {/* Persistent bookmark icon (top-right, subtle) */}
+        <button
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleBookmark(item); }}
+          aria-label={isBookmarked(itemKey) ? 'Remove bookmark' : 'Bookmark'}
+          className={`absolute top-3 right-3 z-20 p-1 rounded-md transition-colors ${isBookmarked(itemKey) ? 'text-blue-400' : 'text-white/40 hover:text-white/80'}`}
+        >
+          {isBookmarked(itemKey) ? <BookmarkCheck size={13} /> : <Bookmark size={13} />}
+        </button>
+
         {item.gradientClass && (
           <div className={`absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r ${item.gradientClass} z-10`} />
         )}
 
         <a href={item.link} target="_blank" rel="noopener noreferrer" className="flex flex-col h-full" draggable="false">
           {/* Image region — uniform height; gradient placeholder when no image */}
-          <div className="relative h-[140px] flex-shrink-0 overflow-hidden bg-white/5 flex items-center justify-center">
+          <div className="relative h-[180px] flex-shrink-0 overflow-hidden bg-white/5 flex items-center justify-center">
             {hasRealImage ? (
               <img src={item.image} alt="" draggable="false" className="w-full h-full object-cover" loading="lazy" onError={e => { e.currentTarget.style.display = 'none'; }} />
             ) : favicon ? (
@@ -323,28 +332,25 @@ export default function Home() {
                 <img src={item.image} alt="" draggable="false" className="relative h-8 object-contain" loading="lazy" onError={e => { e.currentTarget.style.display = 'none'; }} />
               </>
             ) : (
-              <div className="absolute inset-0 phantom-card-placeholder flex items-center justify-center">
-                <span className="text-2xl font-bold tracking-tight text-white/15 uppercase">{(item.source || '?').slice(0, 2)}</span>
+              <div className="absolute inset-0 phantom-card-placeholder flex flex-col items-center justify-center">
+                <span className="text-[15px] tracking-[0.08em] text-white/20 font-medium text-center px-3">{item.source}</span>
               </div>
             )}
+            {/* Category pill overlaid on image (bottom-left) */}
+            <span className="absolute bottom-2 left-2 z-10 px-2 py-0.5 rounded text-[9px] tracking-wider uppercase bg-black/60 backdrop-blur text-white/80">
+              {item.category}
+            </span>
           </div>
 
           {/* Content — flex column, footer pinned to bottom */}
           <div className="flex flex-col flex-1 min-h-0 px-4 pt-3 pb-3">
             <div className="flex items-center gap-2 mb-2 flex-shrink-0">
-              <span className="phantom-tag">{item.category}</span>
               <span className="phantom-mono truncate">{item.source}</span>
             </div>
 
             <h3 className="text-[13px] font-medium leading-snug mb-1.5 group-hover:text-white transition-colors line-clamp-2 text-white/85 flex-shrink-0">
               {item.title}
             </h3>
-
-            {item.description && (
-              <p className="text-[11px] leading-relaxed text-white/30 line-clamp-2 flex-shrink-0">
-                {item.description}
-              </p>
-            )}
 
             <div className="flex items-center justify-between pt-2 mt-auto border-t border-white/5 flex-shrink-0">
               <div className="flex items-center gap-1.5 phantom-mono-dim pt-1">
@@ -358,13 +364,6 @@ export default function Home() {
                   className="p-1 rounded text-white/25 hover:text-blue-400 hover:bg-white/5 transition-colors opacity-0 group-hover:opacity-100"
                 >
                   <MessageCircle size={11} />
-                </button>
-                <button
-                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleBookmark(item); }}
-                  aria-label={isBookmarked(itemKey) ? 'Remove bookmark' : 'Bookmark'}
-                  className={`p-1 rounded transition-colors ${isBookmarked(itemKey) ? 'text-blue-400' : 'text-white/25 hover:text-white/70 opacity-0 group-hover:opacity-100'}`}
-                >
-                  {isBookmarked(itemKey) ? <BookmarkCheck size={12} /> : <Bookmark size={12} />}
                 </button>
                 <ExternalLink size={11} className="text-white/25 opacity-0 group-hover:opacity-50 transition-opacity" />
               </div>
@@ -384,7 +383,7 @@ export default function Home() {
         {/* Top-left: brand + live status */}
         <div className="flex flex-col gap-1.5">
           <Link href="/" className="text-sm font-semibold tracking-[0.22em] uppercase text-white/95">
-            Tech News
+            Innovation Board
           </Link>
           <div className="phantom-mono-dim flex items-center gap-2">
             {autoRefreshInterval > 0 ? (
@@ -458,8 +457,8 @@ export default function Home() {
         <PhantomDome
           items={sortedNews}
           renderItem={renderCard}
-          cardWidth={300}
-          cardHeight={300}
+          cardWidth={320}
+          cardHeight={320}
           radius={2100}
           anglePerColumn={13}
           maxArc={150}
