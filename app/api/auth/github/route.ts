@@ -1,10 +1,20 @@
 export const runtime = 'nodejs';
 
-const GITHUB_DEVICE_AUTH_URL = 'https://github.com/login/device/code';
-const GITHUB_TOKEN_URL = 'https://github.com/login/oauth/access_token';
+import { checkRateLimit } from '@/lib/rate-limiter';
+
+const GITHUB_DEVICE_AUTH_URL='https:...code';
+const GITHUB_TOKEN_URL='https:...oken';
 
 // POST: Start the device flow — returns device_code + user_code + verification_uri
 export async function POST(request: Request) {
+  // Rate limit check — prevent auth flow spam
+  if (!checkRateLimit('/api/auth/github')) {
+    return new Response(
+      JSON.stringify({ error: 'Rate limited. Try again in a minute.' }),
+      { status: 429, headers: { 'Content-Type': 'application/json' } },
+    );
+  }
+
   try {
     const { clientId } = await request.json();
 

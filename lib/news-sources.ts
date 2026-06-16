@@ -47,9 +47,12 @@ const DEFAULT_SOURCES: NewsSource[] = [
   { url: 'https://www.opensourceforu.com/feed/', category: 'Open Source', source: 'Open Source For U', maxItems: 10, fallbackUrls: [] },
   { url: 'https://huggingface.co/blog/feed.xml', category: 'Open Source', source: 'Hugging Face Blog', maxItems: 15, fallbackUrls: [] },
 
-  // --- Traditional Chinese (繁體中文) ---
-  // HKEPC RSS feed is currently inaccessible from this environment (403/timeout). Disabled until resolved.
-  { url: 'https://www.hkepc.com/rss', category: 'Consumer Tech', source: 'HKEPC Hardware', language: 'zh-HK', maxItems: 15, enabled: false, fallbackUrls: [] },
+  // --- Hong Kong Tech / Hardware (繁體中文) ---
+  { url: 'https://hkit.org/feed/', category: 'Consumer Tech', source: 'HKIT', language: 'zh-HK', maxItems: 15, fallbackUrls: [] },
+  { url: 'https://www.hkpc.com/rss', category: 'Consumer Tech', source: 'HKPC Hardware', language: 'zh-HK', maxItems: 15, fallbackUrls: ['http://feeds.feedburner.com/HKPC'] },
+  // Google News search feeds for HK tech coverage (more robust than direct site feeds)
+  { url: 'https://news.google.com/rss/search?q=香港科技&hl=en-US&gl=US&ceid=US:en', category: 'AI', source: 'Google News 香港科技', language: 'zh-HK', maxItems: 15, fallbackUrls: [] },
+  { url: 'https://news.google.com/rss/search?q=hktech&hl=en-US&gl=US&ceid=US:en', category: 'Startups', source: 'Google News HK Tech', language: 'en-HK', maxItems: 15, fallbackUrls: [] },
   { url: 'https://unwire.hk/feed/', category: 'Startups', source: 'Unwire HK', language: 'zh-HK', maxItems: 15, fallbackUrls: [] },
   { url: 'https://technews.tw/feed/', category: 'AI', source: 'TechNews 科技新報', language: 'zh-TW', maxItems: 15, fallbackUrls: [] },
 ];

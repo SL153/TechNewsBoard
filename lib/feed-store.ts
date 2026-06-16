@@ -11,13 +11,8 @@ export interface StoredFeed {
   enabled: boolean;
 }
 
-export interface FeedStoreData {
-  version: number;
-  sources: StoredFeed[];
-}
-
-// Default feeds matching current RSS_FEEDS in news-sources.ts
-const DEFAULT_SOURCES: StoredFeed[] = [
+// Hardcoded defaults — always returns a known array, never undefined
+const DEFAULT_FEEDS: StoredFeed[] = [
   { url: 'https://feeds.feedburner.com/TechCrunch/', category: 'Startups', source: 'TechCrunch', maxItems: 15, enabled: true },
   { url: 'https://venturebeat.com/feed/', category: 'Startups', source: 'VentureBeat', maxItems: 15, enabled: true },
   { url: 'https://www.techmeme.com/feed.xml', category: 'Startups', source: 'TechMeme', maxItems: 15, enabled: true },
@@ -31,8 +26,14 @@ const DEFAULT_SOURCES: StoredFeed[] = [
 
   { url: 'https://techcrunch.com/category/artificial-intelligence/feed/', category: 'AI', source: 'TechCrunch AI', maxItems: 15, enabled: true },
   { url: 'https://blog.google/technology/ai/rss/', category: 'AI', source: 'Google AI Blog', maxItems: 15, enabled: true },
-  { url: 'https://openai.com/blog/rss.xml', category: 'AI', source: 'OpenAI Blog', maxItems: 15, enabled: true },
   { url: 'https://spectrum.ieee.org/feeds/topic/artificial-intelligence.rss', category: 'AI', source: 'IEEE Spectrum AI', maxItems: 15, enabled: true },
+  { url: 'https://deepmind.google/blog/rss.xml', category: 'AI', source: 'Google DeepMind Blog', maxItems: 15, enabled: true },
+
+  { url: 'https://openai.com/blog/rss.xml', category: 'AI Blogs', source: 'OpenAI Blog', maxItems: 15, enabled: true },
+  { url: 'https://www.anthropic.com/research', category: 'AI Blogs', source: 'Anthropic Blog', maxItems: 15, enabled: true },
+  { url: 'https://www.kimi.com/blog', category: 'AI Blogs', source: 'Kimi/Moonshot Blog', maxItems: 15, enabled: true },
+  { url: 'https://www.microsoft.com/en-us/research/feed/', category: 'AI Blogs', source: 'Microsoft Research Blog', maxItems: 15, enabled: true },
+  { url: 'https://blogs.nvidia.com/feed/', category: 'AI Blogs', source: 'NVIDIA Blog', maxItems: 15, enabled: true },
 
   { url: 'https://feeds.arstechnica.com/arstechnica/index', category: 'Innovation', source: 'Ars Technica', maxItems: 15, enabled: true },
   { url: 'https://www.wired.com/feed/rss', category: 'Innovation', source: 'Wired', maxItems: 15, enabled: true },
@@ -50,22 +51,21 @@ const DEFAULT_SOURCES: StoredFeed[] = [
 ];
 
 export function loadFeeds(): StoredFeed[] {
-  if (typeof window === 'undefined') return DEFAULT_SOURCES;
+  if (typeof window === 'undefined') return DEFAULT_FEEDS;
   try {
     const stored = localStorage.getItem(FEEDS_KEY);
-    if (!stored) return DEFAULT_SOURCES;
-    const data = JSON.parse(stored) as FeedStoreData;
-    if (!data.sources || !Array.isArray(data.sources)) return DEFAULT_SOURCES;
+    if (!stored) return DEFAULT_FEEDS;
+    const data = JSON.parse(stored);
+    if (!data.sources || !Array.isArray(data.sources)) return DEFAULT_FEEDS;
     return data.sources;
   } catch {
-    return DEFAULT_SOURCES;
+    return DEFAULT_FEEDS;
   }
 }
 
 export function saveFeeds(sources: StoredFeed[]): void {
   if (typeof window === 'undefined') return;
-  const data: FeedStoreData = { version: 1, sources };
-  localStorage.setItem(FEEDS_KEY, JSON.stringify(data));
+  localStorage.setItem(FEEDS_KEY, JSON.stringify({ version: 1, sources }));
 }
 
 export function addFeed(feed: StoredFeed): StoredFeed[] {
@@ -98,7 +98,9 @@ export function toggleFeed(url: string): StoredFeed[] {
 
 // Get only enabled sources as NewsSource array for RSS parser
 export function getEnabledSources(): NewsSource[] {
-  return loadFeeds()
+  const feeds = loadFeeds();
+  if (!Array.isArray(feeds)) return []; // safety guard — never returns undefined
+  return feeds
     .filter(f => f.enabled)
     .map(({ url, category, source, language, maxItems }) => ({
       url,

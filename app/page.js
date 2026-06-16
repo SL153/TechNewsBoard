@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { RefreshCw, Moon, Sun, ExternalLink, Clock, Zap, Search, Bookmark, BookmarkCheck, Settings, ChevronDown, X, ArrowUpRight, MessageCircle, Rss, Bell, Check } from 'lucide-react';
 import Link from 'next/link';
 import ChatSidebar from './components/ChatSidebar';
@@ -10,8 +10,10 @@ import DataImportExport from './components/DataImportExport';
 import NotificationSettings from './components/NotificationSettings';
 import * as NotificationStore from '@/lib/notification-store';
 import { getEnabledSources } from '@/lib/feed-store';
+import { readBookmarks, writeBookmarks, readSettings, writeSettings } from '@/lib/state-manager';
+import ErrorBoundary from './components/ErrorBoundary';
 
-const CATEGORY_MAP = ['All', 'Startups', 'Consumer Tech', 'AI', 'Innovation', 'Open Source'];
+const CATEGORY_MAP = ['All', 'Startups', 'Consumer Tech', 'AI', 'AI Blogs', 'Innovation', 'Open Source'];
 const LANGUAGES = ['English', '繁體中文'];
 const DAY_RANGES = [
   { label: 'Today', days: 1 },
@@ -30,41 +32,26 @@ const REFRESH_INTERVALS = [
   { label: '12 hours', value: 43200000 },
 ];
 
-const BOOKMARKS_KEY = 'technews-bookmarks';
-const SETTINGS_KEY = 'technews-settings';
+const BOOKMARKS_KEY = 'technews-bookmarks'; // kept for reference in state-manager.ts
+const SETTINGS_KEY = 'technews-settings'; // kept for reference in state-manager.ts
 
 function loadBookmarks() {
-  if (typeof window === 'undefined') return [];
-  try {
-    const stored = localStorage.getItem(BOOKMARKS_KEY);
-    return stored ? JSON.parse(stored) : [];
-  } catch {
-    return [];
-  }
+  return readBookmarks();
 }
 
 function saveBookmarks(bookmarks) {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(bookmarks));
+  writeBookmarks(bookmarks);
 }
 
 function loadSettings() {
-  if (typeof window === 'undefined') return null;
-  try {
-    const stored = localStorage.getItem(SETTINGS_KEY);
-    return stored ? JSON.parse(stored) : null;
-  } catch {
-    return null;
-  }
+  return readSettings();
 }
 
 function saveSettings(settings) {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  writeSettings(settings);
 }
 
 export default function Home() {
-  const [news, setNews] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedCategories, setSelectedCategories] = useState(null);
@@ -74,10 +61,10 @@ export default function Home() {
   const [darkMode, setDarkMode] = useState(false);
   const [autoRefreshInterval, setAutoRefreshInterval] = useState(1800000);
   const [lastFetchTime, setLastFetchTime] = useState(null);
-  const [searchQuery, setSearchQuery] = useState('');
+const [searchQuery, setSearchQuery] = useState('');
   const [selectedLanguage, setSelectedLanguage] = useState('English');
-  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
-  const searchTimeoutRef = useRef(null);
+  const newsCacheRef = useRef([]);
+  const pendingDaysRef = useRef(3);
   const [bookmarks, setBookmarks] = useState([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sourceFilterOpen, setSourceFilterOpen] = useState(false);
@@ -91,7 +78,14 @@ export default function Home() {
 
   useEffect(() => {
     fetchNews();
-  }, [dayRange, selectedCategories, debouncedSearchQuery, selectedLanguage]);
+  }, []);
+
+  useEffect(() => {
+    if (dayRange > pendingDaysRef.current) {
+      pendingDaysRef.current = dayRange;
+      fetchNews(true);
+    }
+  }, [dayRange]);
 
   useEffect(() => {
     setSelectedCategories(new Set(['All']));
@@ -134,40 +128,23 @@ export default function Home() {
     setError(null);
     try {
       const params = new URLSearchParams();
-      
-      if (isRefresh) params.set('refresh', 'true');
-      
+
       if (dayRange < Infinity && dayRange !== undefined) {
         params.set('days', String(dayRange));
       }
-      
-      const cats = selectedCategories || new Set(['All']);
-      if (!cats.has('All')) {
-        [...cats].forEach(cat => params.append('category', cat));
-      }
-      
-      if (searchQuery.trim()) {
-        params.set('q', searchQuery.trim());
-      }
 
-      // Pass enabled feed sources so the server knows which feeds to fetch
       const enabledSources = getEnabledSources();
       const sourceNames = enabledSources.map(s => s.source);
       params.set('feeds', JSON.stringify(sourceNames));
 
-      if (selectedLanguage === '繁體中文') {
-        params.set('lang', 'zh-HK');
-      } else {
-        params.set('lang', '');
-      }
-      
       const queryString = params.toString();
       const url = `/api/news${queryString ? '?' + queryString : ''}`;
 
       const res = await fetch(url, { cache: 'no-store' });
       if (!res.ok) throw new Error('Failed to fetch news');
       const data = await res.json();
-      setNews(data);
+      newsCacheRef.current = data;
+      pendingDaysRef.current = dayRange;
       setLastFetchTime(new Date());
 
       // Check for notification matches
@@ -226,7 +203,6 @@ export default function Home() {
     setDayRange(3);
     setSortBy('newest');
     setSearchQuery('');
-    fetchNews();
   }
 
   function toggleBookmark(article) {
@@ -246,27 +222,38 @@ export default function Home() {
     return bookmarks.some(b => b.link === link);
   }
 
-  const allSources = [...new Set(news.map(n => n.source))].sort();
+  const allSources = useMemo(() => {
+    return [...new Set(newsCacheRef.current.map(n => n.source))].sort();
+  }, [lastFetchTime]);
 
-  const filteredNews = news.filter(n => {
-    const cats = selectedCategories || new Set(['All']);
-    const sources = selectedSources || new Set();
-    if (!cats.has('All') && !cats.has(n.category)) return false;
-    if (sources.size > 0 && !sources.has(n.source)) return false;
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      if (!(n.title.toLowerCase().includes(q) || (n.description && n.description.toLowerCase().includes(q)))) return false;
-    }
-    return true;
-  });
+  const filteredNews = useMemo(() => {
+    return newsCacheRef.current.filter(n => {
+      const cats = selectedCategories || new Set(['All']);
+      const sources = selectedSources || new Set();
+      if (!cats.has('All') && !cats.has(n.category)) return false;
+      if (sources.size > 0 && !sources.has(n.source)) return false;
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        if (!(n.title.toLowerCase().includes(q) || (n.description && n.description.toLowerCase().includes(q)))) return false;
+      }
+      if (selectedLanguage === '繁體中文') {
+        if (!n.language || !n.language.startsWith('zh')) return false;
+      } else {
+        if (n.language && n.language.startsWith('zh')) return false;
+      }
+      return true;
+    });
+  }, [lastFetchTime, selectedCategories, selectedSources, searchQuery, selectedLanguage]);
 
-  const sortedNews = [...filteredNews].sort((a, b) => {
-    if (sortBy === 'newest') return new Date(b.pubDate || 0) - new Date(a.pubDate || 0);
-    return new Date(a.pubDate || 0) - new Date(b.pubDate || 0);
-  });
+  const sortedNews = useMemo(() => {
+    return [...filteredNews].sort((a, b) => {
+      if (sortBy === 'newest') return new Date(b.pubDate || 0) - new Date(a.pubDate || 0);
+      return new Date(a.pubDate || 0) - new Date(b.pubDate || 0);
+    });
+  }, [filteredNews, sortBy]);
 
-  const topStories = sortedNews.slice(0, 5);
-  const restOfNews = sortedNews.slice(5);
+  const topStories = useMemo(() => sortedNews.slice(0, 5), [sortedNews]);
+  const restOfNews = useMemo(() => sortedNews.slice(5), [sortedNews]);
 
   function formatPubDate(pubDate) {
     if (!pubDate) return '';
@@ -328,14 +315,15 @@ export default function Home() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-background text-foreground transition-[background-color,color] duration-300" style={{ backgroundImage: darkMode ? undefined : 'linear-gradient(135deg, #f9fafb, #ebf5ff)' }}>
+    <ErrorBoundary>
+    <div className="h-screen flex flex-col bg-background text-foreground transition-[background-color,color] duration-300" style={{ backgroundImage: darkMode ? undefined : 'linear-gradient(135deg, #f5f3ff, #ede9fe)' }}>
       {/* Header */}
       <header className="flex-shrink-0 z-40 border-b backdrop-blur-xl bg-card/70 dark:bg-background/80 border-border">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-3">
-            <h1 className="text-xl font-bold tracking-tight">Tech News Dashboard</h1>
+            <h1 className="text-xl font-bold tracking-tight bg-gradient-to-r from-[#271F7F] to-[#00FFD4] bg-clip-text text-transparent">Innovation Dashboard</h1>
             {autoRefreshInterval > 0 && (
-                <span className="hidden sm:inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-800/30 text-green-800 dark:text-green-100">
+                <span className="hidden sm:inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-[#05D7CE]/15 text-[#05D7CE]">
                 <Zap size={10} className="animate-pulse" /> Auto-refresh ON
               </span>
             )}
@@ -356,7 +344,7 @@ export default function Home() {
             <Link href="/bookmarks" className="p-2 rounded-lg transition-colors hover:bg-muted dark:hover:bg-accent relative" aria-label="Bookmarks">
               <Bookmark size={18} />
               {bookmarks.length > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 text-xs w-4 h-4 rounded-full flex items-center justify-center font-bold bg-blue-600 text-white">
+                <span className="absolute -top-0.5 -right-0.5 text-xs w-4 h-4 rounded-full flex items-center justify-center font-bold bg-[#6288FC] text-white">
                   {bookmarks.length}
                 </span>
               )}
@@ -395,11 +383,11 @@ export default function Home() {
                     key={interval.value}
                     onClick={() => setAutoRefreshInterval(interval.value)}
                     touch-action="manipulation"
-                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                      autoRefreshInterval === interval.value
-                        ? 'bg-blue-600 text-white dark:bg-blue-700'
-                        : 'bg-secondary hover:bg-muted text-muted-foreground border-border dark:bg-accent dark:hover:bg-muted/80 dark:text-muted-foreground dark:border-border'
-                    }`}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                        autoRefreshInterval === interval.value
+                          ? 'bg-[#6288FC] text-white dark:bg-[#6288FC]'
+                          : 'bg-secondary hover:bg-muted text-muted-foreground border-border dark:bg-accent dark:hover:bg-muted/80 dark:text-muted-foreground dark:border-border'
+                      }`}
                   >
                     {interval.label}
                   </button>
@@ -410,7 +398,7 @@ export default function Home() {
               <div className="mt-4 pt-3 border-t border-border flex items-center justify-between">
                 <button
                   onClick={() => setFeedManagerOpen(!feedManagerOpen)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${feedManagerOpen ? 'bg-blue-600 text-white dark:bg-blue-700' : 'bg-secondary hover:bg-muted text-muted-foreground border-border dark:bg-accent dark:hover:bg-muted/80 dark:text-muted-foreground dark:border-border'}`}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${feedManagerOpen ? 'bg-[#6288FC] text-white dark:bg-[#6288FC]' : 'bg-secondary hover:bg-muted text-muted-foreground border-border dark:bg-accent dark:hover:bg-muted/80 dark:text-muted-foreground dark:border-border'}`}
                 >
                   <Rss size={14} className="mr-1 inline" />
                   Manage Feeds
@@ -458,7 +446,7 @@ export default function Home() {
             aria-label="Search articles by title or description"
             placeholder="Search articles by title or description..."
             className="w-full pl-9 pr-4 py-2.5 rounded-xl text-sm border transition-[border-color,background-color,color] bg-card dark:bg-card border-border dark:border-border text-foreground placeholder:text-muted-foreground focus-visible:ring-2"
-            style={{ '--tw-ring-color': darkMode ? 'var(--primary-700)' : 'var(--primary-600)' }}
+            style={{ '--tw-ring-color': darkMode ? '#6288FC' : '#6288FC' }}
           />
           {searchQuery && (
             <button
@@ -481,7 +469,7 @@ export default function Home() {
               touch-action="manipulation"
               className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
                 selectedLanguage === lang
-                  ? 'bg-blue-600 text-white dark:bg-blue-700'
+                  ? 'bg-[#6288FC] text-white dark:bg-[#6288FC]'
                   : 'bg-secondary hover:bg-muted text-muted-foreground border-border dark:bg-accent dark:hover:bg-muted/80 dark:text-muted-foreground dark:border-border'
               }`}
             >
@@ -497,7 +485,7 @@ export default function Home() {
               onClick={() => toggleCategory(cat)}
               className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
                 (selectedCategories || new Set(['All'])).has(cat)
-                  ? 'bg-blue-600 text-white dark:bg-blue-700'
+                  ? 'bg-[#6288FC] text-white dark:bg-[#6288FC]'
                   : 'bg-secondary hover:bg-muted text-muted-foreground border-border dark:bg-accent dark:hover:bg-muted/80 dark:text-muted-foreground dark:border-border'
               }`}
               touch-action="manipulation"
@@ -515,7 +503,7 @@ export default function Home() {
               touch-action="manipulation"
               className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
                 dayRange === range.days
-                  ? 'bg-blue-600 text-white dark:bg-blue-700'
+                  ? 'bg-[#6288FC] text-white dark:bg-[#6288FC]'
                   : 'bg-secondary hover:bg-muted text-muted-foreground border-border dark:bg-accent dark:hover:bg-muted/80 dark:text-muted-foreground dark:border-border'
               }`}
             >
@@ -531,7 +519,7 @@ export default function Home() {
               touch-action="manipulation"
               className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
                 sortBy === 'newest'
-                  ? 'bg-blue-600 text-white dark:bg-blue-700'
+                  ? 'bg-[#6288FC] text-white dark:bg-[#6288FC]'
                   : 'bg-secondary hover:bg-muted text-muted-foreground border-border dark:bg-accent dark:hover:bg-muted/80 dark:text-muted-foreground dark:border-border'
               }`}
             >
@@ -542,7 +530,7 @@ export default function Home() {
               touch-action="manipulation"
               className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
                 sortBy === 'oldest'
-                  ? 'bg-blue-600 text-white dark:bg-blue-700'
+                  ? 'bg-[#6288FC] text-white dark:bg-[#6288FC]'
                   : 'bg-secondary hover:bg-muted text-muted-foreground border-border dark:bg-accent dark:hover:bg-muted/80 dark:text-muted-foreground dark:border-border'
               }`}
             >
@@ -561,7 +549,7 @@ export default function Home() {
                   sourceFilterOpen
                     ? 'bg-secondary dark:bg-accent text-foreground border-border'
                     : selectedSources && selectedSources.size > 0
-                      ? 'bg-blue-600/15 text-blue-600 border-blue-200 dark:bg-blue-700/15 dark:text-blue-300 dark:border-blue-700'
+                      ? 'bg-[#6288FC]/15 text-[#6288FC] border-[#6288FC]/30 dark:bg-[#6288FC]/15 dark:text-[#6288FC] dark:border-[#6288FC]/40'
                       : 'bg-secondary hover:bg-muted text-muted-foreground border-border dark:bg-accent dark:hover:bg-muted/80 dark:text-muted-foreground dark:border-border'
                 }`}
               >
@@ -581,13 +569,13 @@ export default function Home() {
                         touch-action="manipulation"
                         className={`w-full text-left px-3 py-1.5 rounded-lg text-xs transition-colors flex items-center gap-2 ${
                           ((selectedSources || new Set()).has(source))
-                            ? 'bg-blue-600/15 dark:bg-blue-700/15 text-blue-600 dark:text-blue-300'
+                            ? 'bg-[#6288FC]/15 dark:bg-[#6288FC]/15 text-[#6288FC] dark:text-[#6288FC]'
                             : 'hover:bg-muted dark:hover:bg-accent text-muted-foreground dark:text-muted-foreground'
                         }`}
                       >
                         <span className={`w-3 h-3 rounded border flex items-center justify-center flex-shrink-0 ${
                           (selectedSources || new Set()).has(source)
-                            ? 'bg-blue-600 dark:bg-blue-700 border-blue-600 dark:border-blue-700'
+                            ? 'bg-[#6288FC] dark:bg-[#6288FC] border-[#6288FC] dark:border-[#6288FC]'
                             : 'border-border dark:border-border'
                         }`}>
                           {(selectedSources || new Set()).has(source) && <X size={8} className="text-white" />}
@@ -637,7 +625,7 @@ export default function Home() {
         {/* Executive Summary - Today's Top Stories */}
         {!loading && !error && topStories.length > 0 && (
           <section className="mb-8">
-            <h2 className="text-sm font-bold uppercase tracking-wider mb-3 text-muted-foreground">Today's Top Stories</h2>
+            <h2 className="text-sm font-bold uppercase tracking-wider mb-3 bg-gradient-to-r from-[#271F7F] to-[#00FFD4] bg-clip-text text-transparent">Today's Top Stories</h2>
             <div className="grid grid-cols-3 md:grid-cols-5 gap-3">
               {topStories.map((item, idx) => {
                 const itemKey = item.link || item.title;
@@ -648,7 +636,7 @@ export default function Home() {
                     href={item.link}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className={`block p-4 rounded-xl border transition-all hover:shadow-md group relative overflow-hidden bg-card dark:bg-card ${isSelected ? 'border-blue-500 ring-1 ring-blue-500/30' : 'border-border dark:border-border'} hover:shadow-lg`}
+                    className={`block p-4 rounded-xl border transition-all hover:shadow-md group relative overflow-hidden bg-card dark:bg-card flex flex-col h-full ${isSelected ? 'border-[#6288FC] ring-1 ring-[#6288FC]/30' : 'border-border dark:border-border'} hover:shadow-lg`}
                   >
                     {item.gradientClass && (
                       <div className={`absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r ${item.gradientClass}`} />
@@ -658,19 +646,19 @@ export default function Home() {
                       onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleArticleSelection(item); }}
                       className="absolute top-2 left-2 z-10 p-1 rounded-md bg-card dark:bg-card border border-border opacity-0 group-hover:opacity-100 transition-opacity"
                     >
-                      <div className={`w-3.5 h-3.5 rounded-sm flex items-center justify-center ${isSelected ? 'bg-blue-600' : 'border border-muted-foreground/40'}`}>
+                      <div                       className={`w-3.5 h-3.5 rounded-sm flex items-center justify-center ${isSelected ? 'bg-[#6288FC]' : 'border border-muted-foreground/40'}`}>
                         {isSelected && <Check size={10} className="text-white" />}
                       </div>
                     </button>
                     {item.image && (
-                      <div className={`mb-3 rounded-lg overflow-hidden bg-muted dark:bg-accent flex items-center justify-center ${isFavicon(item.image) ? 'h-12' : ''}`}>
-                        <img src={item.image} alt="" className={`w-full ${isFavicon(item.image) ? 'h-8 object-contain p-1.5' : 'h-20 object-cover'}`} loading="lazy" onError={e => e.currentTarget.style.display = 'none'} />
+                      <div className="mb-3 rounded-lg overflow-hidden bg-muted dark:bg-accent flex items-center justify-center h-24">
+                        <img src={item.image} alt="" className={`w-full h-full object-cover ${isFavicon(item.image) ? 'object-contain p-1.5' : ''}`} loading="lazy" onError={e => e.currentTarget.style.display = 'none'} />
                       </div>
                     )}
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1.5 text-xs text-muted-foreground">
-                          <span className={`px-2 py-0.5 rounded-full font-medium ${darkMode ? 'bg-blue-700/15 text-blue-300' : 'bg-blue-50 text-blue-600 border-blue-200'}`}>{item.category}</span>
+                          <span className={`px-2 py-0.5 rounded-full font-medium ${darkMode ? 'bg-[#8B76FC]/15 text-[#8B76FC]' : 'bg-[#8B76FC]/10 text-[#8B76FC] border-[#8B76FC]/20'}`}>{item.category}</span>
                           <span className="w-1 h-1 rounded-full bg-muted dark:bg-accent" aria-hidden="true" />
                           <span>{item.source}</span>
                           {item.language && (
@@ -690,7 +678,7 @@ export default function Home() {
                         <button
                           onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleAskAbout(item); }}
                           aria-label="Ask about this article"
-                          className="p-1 rounded-lg text-muted-foreground hover:text-blue-600 dark:hover:text-blue-400 hover:bg-muted dark:hover:bg-accent transition-colors opacity-0 group-hover:opacity-100"
+                          className="p-1 rounded-lg text-muted-foreground hover:text-[#078CEA] dark:hover:text-[#078CEA] hover:bg-muted dark:hover:bg-accent transition-colors opacity-0 group-hover:opacity-100"
                         >
                           <MessageCircle size={12} />
                         </button>
@@ -699,7 +687,7 @@ export default function Home() {
                           aria-label={isBookmarked(item.link || item.title) ? 'Remove bookmark' : 'Bookmark article'}
                         className={`p-1 rounded-lg transition-colors ${
                           isBookmarked(item.link || item.title)
-                            ? 'dark:text-blue-300 dark:hover:bg-accent text-blue-600 hover:bg-blue-50'
+                            ? 'dark:text-[#6288FC] dark:hover:bg-accent text-[#6288FC] hover:bg-[#6288FC]/10'
                             : 'text-muted-foreground dark:text-muted-foreground/50 hover:text-foreground hover:bg-muted dark:hover:bg-accent'
                         }`}
                       >
@@ -708,7 +696,7 @@ export default function Home() {
                       <ExternalLink size={12} className={`opacity-0 group-hover:opacity-30 transition-opacity`} />
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
+                  <div className="flex items-center gap-2 mt-auto pt-2 text-xs text-muted-foreground">
                     <Clock size={12} />
                     {formatPubDate(item.pubDate)}
                     <span className="opacity-50">·</span>
@@ -745,7 +733,7 @@ export default function Home() {
                   href={item.link}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className={`block p-4 rounded-xl border transition-all hover:shadow-md group relative overflow-hidden bg-card dark:bg-card ${isSelected ? 'border-blue-500 ring-1 ring-blue-500/30' : 'border-border dark:border-border'} hover:shadow-lg`}
+                  className={`block p-4 rounded-xl border transition-all hover:shadow-md group relative overflow-hidden bg-card dark:bg-card flex flex-col h-full ${isSelected ? 'border-[#6288FC] ring-1 ring-[#6288FC]/30' : 'border-border dark:border-border'} hover:shadow-lg`}
                 >
                   {item.gradientClass && (
                     <div className={`absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r ${item.gradientClass}`} />
@@ -755,16 +743,16 @@ export default function Home() {
                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleArticleSelection(item); }}
                     className="absolute top-2 left-2 z-10 p-1 rounded-md bg-card dark:bg-card border border-border opacity-0 group-hover:opacity-100 transition-opacity"
                   >
-                    <div className={`w-3.5 h-3.5 rounded-sm flex items-center justify-center ${isSelected ? 'bg-blue-600' : 'border border-muted-foreground/40'}`}>
+                    <div                       className={`w-3.5 h-3.5 rounded-sm flex items-center justify-center ${isSelected ? 'bg-[#6288FC]' : 'border border-muted-foreground/40'}`}>
                       {isSelected && <Check size={10} className="text-white" />}
                     </div>
                   </button>
                   {item.image && (
-                    <div className={`mb-3 rounded-lg overflow-hidden bg-muted dark:bg-accent flex items-center justify-center ${isFavicon(item.image) ? 'h-12' : ''}`}>
+                    <div className="mb-3 rounded-lg overflow-hidden bg-muted dark:bg-accent flex items-center justify-center h-24">
                       <img
                         src={item.image}
                         alt=""
-                        className={`w-full ${isFavicon(item.image) ? 'h-8 object-contain p-1.5' : 'h-40 object-cover'}`}
+                        className={`w-full h-full object-cover ${isFavicon(item.image) ? 'object-contain p-1.5' : ''}`}
                         loading="lazy"
                         onError={e => e.currentTarget.style.display = 'none'}
                       />
@@ -773,7 +761,7 @@ export default function Home() {
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1.5 text-xs text-muted-foreground">
-                        <span className={`px-2 py-0.5 rounded-full font-medium ${darkMode ? 'bg-blue-700/15 text-blue-300' : 'bg-blue-50 text-blue-600 border-blue-200'}`}>{item.category}</span>
+                        <span className={`px-2 py-0.5 rounded-full font-medium ${darkMode ? 'bg-[#8B76FC]/15 text-[#8B76FC]' : 'bg-[#8B76FC]/10 text-[#8B76FC] border-[#8B76FC]/20'}`}>{item.category}</span>
                         <span className="w-1 h-1 rounded-full bg-muted dark:bg-accent" aria-hidden="true" />
                         <span>{item.source}</span>
                         {item.language && (
@@ -794,7 +782,7 @@ export default function Home() {
                       <button
                         onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleAskAbout(item); }}
                         aria-label="Ask about this article"
-                        className="p-1 rounded-lg text-muted-foreground hover:text-blue-600 dark:hover:text-blue-400 hover:bg-muted dark:hover:bg-accent transition-colors opacity-0 group-hover:opacity-100"
+                        className="p-1 rounded-lg text-muted-foreground hover:text-[#078CEA] dark:hover:text-[#078CEA] hover:bg-muted dark:hover:bg-accent transition-colors opacity-0 group-hover:opacity-100"
                       >
                         <MessageCircle size={12} />
                       </button>
@@ -803,7 +791,7 @@ export default function Home() {
                         aria-label={isBookmarked(item.link || item.title) ? 'Remove bookmark' : 'Bookmark article'}
                         className={`p-1.5 rounded-lg transition-colors ${
                           isBookmarked(item.link || item.title)
-                            ? 'dark:text-blue-300 dark:hover:bg-accent text-blue-600 hover:bg-blue-50'
+                            ? 'dark:text-[#6288FC] dark:hover:bg-accent text-[#6288FC] hover:bg-[#6288FC]/10'
                             : 'text-muted-foreground dark:text-muted-foreground/50 hover:text-foreground hover:bg-muted dark:hover:bg-accent'
                         }`}
                       >
@@ -812,7 +800,7 @@ export default function Home() {
                       <ExternalLink size={14} className={`opacity-0 group-hover:opacity-30 transition-opacity`} />
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
+                  <div className="flex items-center gap-2 mt-auto pt-2 text-xs text-muted-foreground">
                     <Clock size={12} />
                     {formatPubDate(item.pubDate)}
                     <span className="opacity-50">·</span>
@@ -838,7 +826,7 @@ export default function Home() {
       {selectedArticles.size >= 2 && (
         <button
           onClick={handleCompareSelected}
-          className="fixed bottom-16 right-6 z-40 px-3 py-2 rounded-full shadow-lg bg-blue-600 text-white dark:bg-blue-700 hover:opacity-90 transition-all text-xs font-medium flex items-center gap-1.5"
+          className="fixed bottom-16 right-6 z-40 px-3 py-2 rounded-full shadow-lg bg-gradient-to-r from-[#271F7F] to-[#00FFD4] text-white dark:from-[#271F7F] dark:to-[#00FFD4] hover:opacity-90 transition-all text-xs font-medium flex items-center gap-1.5"
         >
           <ArrowUpRight size={12} />
           Compare {selectedArticles.size} articles
@@ -851,7 +839,7 @@ export default function Home() {
           onClick={() => setChatOpen(!chatOpen)}
           className={`fixed bottom-6 right-6 z-40 p-3 rounded-full shadow-lg transition-all ${
             chatOpen
-              ? 'bg-blue-600 text-white dark:bg-blue-700'
+              ? 'bg-gradient-to-r from-[#271F7F] to-[#00FFD4] text-white dark:from-[#271F7F] dark:to-[#00FFD4]'
               : 'bg-card dark:bg-card text-muted-foreground border border-border hover:bg-muted dark:hover:bg-accent'
           }`}
           aria-label="Toggle chat"
@@ -863,7 +851,10 @@ export default function Home() {
       {/* Chat Sidebar */}
       <ChatSidebar
         open={chatOpen}
-        onClose={() => setChatOpen(false)}
+        onClose={() => {
+          if (chatLayoutMode === 'split') setChatLayoutMode('overlay');
+          setChatOpen(false);
+        }}
         provider={chatProvider}
         articles={sortedNews}
         darkMode={darkMode}
@@ -874,5 +865,6 @@ export default function Home() {
       />
       </div>
     </div>
+    </ErrorBoundary>
   );
 }

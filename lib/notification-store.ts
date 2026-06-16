@@ -1,6 +1,6 @@
 const NOTIFICATIONS_KEY = 'technews-notifications';
 
-export type Category = 'All' | 'Startups' | 'Consumer Tech' | 'AI' | 'Innovation' | 'Open Source';
+export type Category = 'All' | 'Startups' | 'Consumer Tech' | 'AI' | 'AI Blogs' | 'Innovation' | 'Open Source';
 
 export interface NotificationConfig {
   enabled: boolean;
@@ -18,6 +18,7 @@ const DEFAULT_CONFIG: NotificationConfig = {
     'Startups': [],
     'Consumer Tech': [],
     'AI': [],
+    'AI Blogs': [],
     'Innovation': [],
     'Open Source': [],
   },

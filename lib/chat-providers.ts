@@ -167,16 +167,35 @@ export function parseStreamChunk(provider: ChatProvider, data: string): string |
   }
 }
 
-// Build the news context string from articles
+// Build the news context string from articles with smart prioritization
+// Limits to ~3000 chars (roughly 750 tokens) instead of 6000 to reduce wasted LLM tokens
 export function buildNewsContext(
   articles: { title: string; source: string; category: string; pubDate?: string; description?: string }[],
-  maxChars: number = 6000,
+  maxChars: number = 3000,
 ): string {
+  if (!articles || articles.length === 0) return '';
+
+  // Sort by recency (most recent first), then by category diversity
+  const sorted = [...articles].sort((a, b) => {
+    const dateA = a.pubDate ? new Date(a.pubDate).getTime() : 0;
+    const dateB = b.pubDate ? new Date(b.pubDate).getTime() : 0;
+    return dateB - dateA;
+  });
+
+  // Deduplicate by source — keep only the most recent article per source
+  const seenSources = new Set<string>();
+  const deduplicated = sorted.filter(a => {
+    if (seenSources.has(a.source)) return false;
+    seenSources.add(a.source);
+    return true;
+  });
+
   let context = '';
   let count = 0;
 
-  for (const article of articles) {
-    const entry = `[${article.source}] ${article.title} (${article.category}${article.pubDate ? ', ' + article.pubDate : ''})\n${article.description || 'No description'}\n\n`;
+  for (const article of deduplicated) {
+    // Compact entry format to save chars
+    const entry = `[${article.source}] ${article.title} (${article.category})\n${article.description || 'No description'}\n\n`;
 
     if (context.length + entry.length > maxChars) break;
     context += entry;

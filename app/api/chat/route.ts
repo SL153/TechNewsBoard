@@ -5,10 +5,21 @@ import {
   parseStreamChunk,
 } from '@/lib/chat-providers';
 import type { ChatProvider } from '@/lib/chat-providers';
+import { checkRateLimit } from '@/lib/rate-limiter';
 
 export const runtime = 'nodejs';
 
+const CHAT_TIMEOUT_MS = 60_000; // 60-second timeout for upstream LLM requests
+
 export async function POST(request: Request) {
+  // Rate limit check — prevent chat spam
+  if (!checkRateLimit('/api/chat')) {
+    return new Response(
+      JSON.stringify({ error: 'Rate limited. Try again in a minute.' }),
+      { status: 429, headers: { 'Content-Type': 'application/json' } },
+    );
+  }
+
   try {
     const body = await request.json();
     const { messages, provider } = body as {
@@ -27,11 +38,21 @@ export async function POST(request: Request) {
     const headers = getHeaders(provider);
     const requestBody = formatRequestBody(provider, messages);
 
-    const upstream = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(requestBody),
-    });
+    // AbortController to prevent hanging upstream requests from exhausting resources
+    const abortController = new AbortController();
+    const timeoutId = setTimeout(() => abortController.abort(), CHAT_TIMEOUT_MS);
+
+    let upstream: Response;
+    try {
+      upstream = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(requestBody),
+        signal: abortController.signal,
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     if (!upstream.ok) {
       const errorText = await upstream.text();

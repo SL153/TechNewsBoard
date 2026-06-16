@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { Bell, ChevronDown, Check, X } from 'lucide-react';
 import * as NotificationStore from '@/lib/notification-store';
 
-const CATEGORIES = ['All', 'Startups', 'Consumer Tech', 'AI', 'Innovation', 'Open Source'];
+const CATEGORIES = ['All', 'Startups', 'Consumer Tech', 'AI', 'AI Blogs', 'Innovation', 'Open Source'];
 
 export default function NotificationSettings({ darkMode }) {
   const [config, setConfig] = useState(NotificationStore.loadNotificationConfig());

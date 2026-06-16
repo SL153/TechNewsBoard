@@ -5,23 +5,17 @@ import { X, Send, Trash2, Loader2, Bot, User, AlertCircle, Copy, Check, External
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { buildNewsContext, buildSystemPrompt } from '@/lib/chat-providers';
+import { readChatHistory, writeChatHistory } from '@/lib/state-manager';
+import ErrorBoundary from './ErrorBoundary';
 
-const CHAT_HISTORY_KEY = 'technews-chat-history';
+const CHAT_HISTORY_KEY = 'technews-chat-history'; // kept for reference in state-manager.ts
 
 function loadChatHistory() {
-  if (typeof window === 'undefined') return [];
-  try {
-    const stored = localStorage.getItem(CHAT_HISTORY_KEY);
-    return stored ? JSON.parse(stored) : [];
-  } catch { return []; }
+  return readChatHistory();
 }
 
 function saveChatHistory(messages) {
-  if (typeof window === 'undefined') return;
-  try {
-    const trimmed = messages.slice(-50);
-    localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(trimmed));
-  } catch { /* ignore quota errors */ }
+  writeChatHistory(messages);
 }
 
 function generateQuickPrompts(articles) {
@@ -278,6 +272,7 @@ export default function ChatSidebar({ open, onClose, provider, articles, darkMod
     : `fixed right-0 top-0 h-full z-50 w-[28rem] lg:w-[32rem] flex-shrink-0 flex flex-col border-l bg-card dark:bg-card border-border shadow-xl transition-transform duration-300 ease-in-out ${open ? 'translate-x-0' : 'translate-x-full'}`;
 
   return (
+    <ErrorBoundary>
     <aside className={asideClasses}>
       <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-card dark:bg-card">
         <div className="flex items-center gap-2">
@@ -454,5 +449,6 @@ export default function ChatSidebar({ open, onClose, provider, articles, darkMod
         )}
       </div>
     </aside>
+    </ErrorBoundary>
   );
 }

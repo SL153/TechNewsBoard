@@ -5,7 +5,7 @@ import { Loader2, Check, X, Plus, Trash2, ExternalLink, Eye, EyeOff, Rss, Edit2 
 import { loadFeeds, saveFeeds, addFeed, updateFeed, removeFeed, toggleFeed } from '@/lib/feed-store';
 import FeedImportExport from './FeedImportExport';
 
-const CATEGORIES = ['Startups', 'Consumer Tech', 'AI', 'Innovation', 'Open Source'];
+const CATEGORIES = ['Startups', 'Consumer Tech', 'AI', 'AI Blogs', 'Innovation', 'Open Source'];
 const LANGUAGES = ['English', '繁體中文'];
 const FEEDS_KEY = 'technews-feeds';
 

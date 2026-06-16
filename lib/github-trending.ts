@@ -3,6 +3,8 @@ import type { ParsedNewsItem } from './rss-parser';
 const GITHUB_TRENDING_URL = 'https://github.com/trending/typescript?since=daily';
 const GH_TIMEOUT = 15000;
 const MAX_ITEMS = 20;
+// Fallback: GitHub API for repos with high stars in TypeScript (used when HTML scraping fails)
+const GITHUB_API_SEARCH_URL = 'https://api.github.com/search/repositories';
 
 function truncate(str: string, len: number): string {
   if (!str || str.length <= len) return str;
@@ -59,6 +61,39 @@ async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Respons
   } finally {
     clearTimeout(timer);
   }
+}
+
+// Fallback: fetch top TypeScript repos via GitHub API when HTML scraping fails
+async function fetchGitHubApiFallback(): Promise<ParsedNewsItem[]> {
+  const results: ParsedNewsItem[] = [];
+  try {
+    // GitHub API has rate limits; use a generous timeout
+    const res = await fetchWithTimeout(
+      `${GITHUB_API_SEARCH_URL}?q=language:typescript&sort=stars&order=desc&per_page=${MAX_ITEMS}`,
+      GH_TIMEOUT,
+    );
+    if (!res.ok) return []; // API rate-limited or unavailable — silently degrade
+
+    const data = await res.json();
+    if (!data.items || !Array.isArray(data.items)) return [];
+
+    for (const repo of data.items.slice(0, MAX_ITEMS)) {
+      results.push({
+        title: `${repo.owner.login}/${repo.name}`,
+        link: repo.html_url,
+        description: truncate(repo.description || `Stars: ${repo.stargazers_count.toLocaleString()}`, 200),
+        image: null,
+        language: repo.language,
+        gradientClass: getLanguageGradient(repo.language),
+        pubDate: new Date().toISOString(),
+        category: 'Open Source',
+        source: 'GitHub Trending (API fallback)',
+      });
+    }
+  } catch {
+    // API unavailable — return empty, caller will have no results
+  }
+  return results;
 }
 
 export async function fetchGitHubTrending(): Promise<ParsedNewsItem[]> {
@@ -124,7 +159,16 @@ export async function fetchGitHubTrending(): Promise<ParsedNewsItem[]> {
       count++;
     }
   } catch (err) {
-    console.error('Failed to fetch GitHub Trending:', err.message);
+    console.error('Failed to scrape GitHub Trending HTML:', err.message);
+  }
+
+  // If scraping returned nothing, fall back to GitHub API search
+  if (results.length === 0) {
+    const fallbackResults = await fetchGitHubApiFallback();
+    if (fallbackResults.length > 0) {
+      console.log('Using GitHub API fallback for trending repos');
+      return fallbackResults;
+    }
   }
 
   return results;

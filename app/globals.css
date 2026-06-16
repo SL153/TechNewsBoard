@@ -22,17 +22,17 @@
   --color-input: var(--input);
   --color-ring: var(--ring);
 
-  /* Blue accent palette */
-  --color-blue-50: #ebf5ff;
-  --color-blue-100: #e1effe;
-  --color-blue-200: #c3ddfd;
-  --color-blue-300: #a4cafe;
-  --color-blue-600: #1c64f2;
-  --color-blue-700: #1a56db;
+  /* AI Team Cool Current palette */
+  --color-blue-50: #f0f2ff;
+  --color-blue-100: #d9deff;
+  --color-blue-200: #b3bcfe;
+  --color-blue-300: #8b76fc;
+  --color-blue-600: #6288fc;
+  --color-blue-700: #5c96fc;
 
-  /* Green palette */
-  --color-green-100: #def7ec;
-  --color-green-800: #03543f;
+  /* Teal for success (Cool Current) */
+  --color-green-100: #d0faf7;
+  --color-green-800: #035450;
 
   /* Chart colors */
   --color-chart-1: var(--chart-1);
@@ -55,26 +55,26 @@
 }
 
 :root {
-  /* Base colors */
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  /* AI Team Cool Current — Light Mode */
+  --background: #f5f3ff;
+  --foreground: #1a2080;
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: #1a2080;
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  --popover-foreground: #1a2080;
+  --primary: #6288fc;
+  --primary-foreground: #ffffff;
+  --secondary: #f0eeff;
+  --secondary-foreground: #1a2080;
+  --muted: #f5f3ff;
+  --muted-foreground: #5c6a8a;
+  --accent: #ede9fe;
+  --accent-foreground: #1a2080;
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --border: #e0dcf5;
+  --input: #e0dcf5;
+  --ring: #6288fc;
 
   /* Chart colors */
   --chart-1: oklch(0.646 0.222 41.116);
@@ -84,35 +84,36 @@
   --chart-5: oklch(0.769 0.188 70.08);
 
   /* Sidebar colors */
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar: #f5f3ff;
+  --sidebar-foreground: #1a2080;
+  --sidebar-primary: #6288fc;
+  --sidebar-accent: #ede9fe;
 
   /* Radius */
   --radius: 0.625rem;
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
+  /* AI Team Cool Current — Dark Mode */
+  --background: #0d1035;
+  --foreground: #e8e6f0;
+  --card: #161b4a;
+  --card-foreground: #e8e6f0;
+  --popover: #161b4a;
+  --popover-foreground: #e8e6f0;
+  --primary: #6288fc;
+  --primary-foreground: #ffffff;
+  --secondary: #1c2260;
+  --secondary-foreground: #e8e6f0;
+  --muted: #141945;
+  --muted-foreground: #a0a3c4;
+  --accent: #1e2468;
+  --accent-foreground: #e8e6f0;
   --destructive: oklch(0.704 0.191 22.216);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(1 0 0 / 13%);
-  --input: oklch(1 0 0 / 13%);
-  --ring: oklch(0.556 0 0);
+  --destructive-foreground: #e8e6f0;
+  --border: rgba(255, 255, 255, 0.08);
+  --input: rgba(255, 255, 255, 0.08);
+  --ring: #6288fc;
 
   /* Chart colors (dark variants) */
   --chart-1: oklch(0.488 0.243 264.376);
@@ -122,10 +123,10 @@
   --chart-5: oklch(0.645 0.246 16.439);
 
   /* Sidebar colors (dark) */
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar: #161b4a;
+  --sidebar-foreground: #e8e6f0;
+  --sidebar-primary: #6288fc;
+  --sidebar-accent: #1e2468;
 }
 
 /* Global rules */
@@ -183,11 +184,11 @@ body {
   font-style: italic;
 }
 .chat-markdown a {
-  color: #1c64f2;
+  color: #6288fc;
   text-decoration: underline;
 }
 .dark .chat-markdown a {
-  color: #a4cafe;
+  color: #8b76fc;
 }
 .chat-markdown code {
   font-family: ui-monospace, monospace;

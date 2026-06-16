@@ -3,22 +3,17 @@
 import { useState, useEffect } from 'react';
 import { RefreshCw, Moon, Sun, ExternalLink, Clock, BookmarkCheck, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
+import ErrorBoundary from '../components/ErrorBoundary';
+import { readBookmarks, writeBookmarks } from '@/lib/state-manager';
 
-const BOOKMARKS_KEY = 'technews-bookmarks';
+const BOOKMARKS_KEY = 'technews-bookmarks'; // kept for reference in state-manager.ts
 
 function loadBookmarks() {
-  if (typeof window === 'undefined') return [];
-  try {
-    const stored = localStorage.getItem(BOOKMARKS_KEY);
-    return stored ? JSON.parse(stored) : [];
-  } catch {
-    return [];
-  }
+  return readBookmarks();
 }
 
 function saveBookmarks(bookmarks) {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(bookmarks));
+  writeBookmarks(bookmarks);
 }
 
 export default function BookmarksPage() {
@@ -51,13 +46,14 @@ export default function BookmarksPage() {
   const sortedBookmarks = [...bookmarks].sort((a, b) => new Date(b.bookmarkedAt || 0) - new Date(a.bookmarkedAt || 0));
 
   return (
-    <div className="min-h-screen bg-background text-foreground transition-[background-color,color] duration-300" style={{ backgroundImage: darkMode ? undefined : 'linear-gradient(135deg, #f9fafb, #ebf5ff)' }}>
+    <ErrorBoundary>
+    <div className="min-h-screen bg-background text-foreground transition-[background-color,color] duration-300" style={{ backgroundImage: darkMode ? undefined : 'linear-gradient(135deg, #f5f3ff, #ede9fe)' }}>
       {/* Header */}
       <header className="sticky top-0 z-50 border-b backdrop-blur-xl bg-card/70 dark:bg-background/80 border-border">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-3">
             <ArrowLeft size={18} />
-            <h1 className="text-xl font-bold tracking-tight">Bookmarks</h1>
+            <h1 className="text-xl font-bold tracking-tight bg-gradient-to-r from-[#271F7F] to-[#00FFD4] bg-clip-text text-transparent">Bookmarks</h1>
           </Link>
           <div className="flex items-center gap-2">
             {bookmarks.length > 0 && (
@@ -85,7 +81,7 @@ export default function BookmarksPage() {
           <div className="text-center py-20 opacity-40">
             <BookmarkCheck size={48} className="mx-auto mb-3 opacity-30" />
             <p className="text-sm mb-1">No bookmarks yet</p>
-            <Link href="/" className="text-xs underline dark:text-blue-300 text-blue-600">Browse articles to bookmark them</Link>
+            <Link href="/" className="text-xs underline dark:text-[#8B76FC] text-[#6288FC]">Browse articles to bookmark them</Link>
           </div>
         )}
 
@@ -101,7 +97,7 @@ export default function BookmarksPage() {
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1.5 text-xs text-muted-foreground">
-                    <span className={`px-2 py-0.5 rounded-full font-medium ${darkMode ? 'bg-blue-700/15 text-blue-300' : 'bg-blue-50 text-blue-600 border-blue-200'}`}>{item.category}</span>
+                    <span className={`px-2 py-0.5 rounded-full font-medium ${darkMode ? 'bg-[#8B76FC]/15 text-[#8B76FC]' : 'bg-[#8B76FC]/10 text-[#8B76FC] border-[#8B76FC]/20'}`}>{item.category}</span>
                     <span className="w-1 h-1 rounded-full bg-muted dark:bg-accent" />
                     <span>{item.source}</span>
                   </div>
@@ -114,7 +110,7 @@ export default function BookmarksPage() {
                 </div>
                 <button
                   onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeBookmark(item.link); }}
-                  className="p-1.5 rounded-lg transition-colors flex-shrink-0 dark:text-blue-300 dark:hover:bg-accent text-blue-600 hover:bg-blue-50"
+                  className="p-1.5 rounded-lg transition-colors flex-shrink-0 dark:text-[#6288FC] dark:hover:bg-accent text-[#6288FC] hover:bg-[#6288FC]/10"
                   title="Remove bookmark"
                 >
                   <BookmarkCheck size={16} />
@@ -137,5 +133,6 @@ export default function BookmarksPage() {
         )}
       </main>
     </div>
+    </ErrorBoundary>
   );
 }

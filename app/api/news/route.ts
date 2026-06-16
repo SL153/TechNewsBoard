@@ -2,8 +2,19 @@ import { fetchFeedWithFallback } from '@/lib/rss-parser';
 import { RSS_FEEDS } from '@/lib/news-sources';
 import { fetchHackerNews } from '@/lib/hacker-news';
 import { fetchGitHubTrending } from '@/lib/github-trending';
+import { fetchAnthropicResearch, fetchKimiBlog } from '@/lib/ai-blogs';
+import { fetchFirecrawl } from '@/lib/firecrawl';
+import { checkRateLimit } from '@/lib/rate-limiter';
 
 export async function GET(request: Request) {
+  // Rate limit check — prevent burst requests from overwhelming upstream sources
+  if (!checkRateLimit('/api/news')) {
+    return new Response(
+      JSON.stringify({ error: 'Rate limited. Try again in a minute.' }),
+      { status: 429, headers: { 'Content-Type': 'application/json' } },
+    );
+  }
+
   const { searchParams } = new URL(request.url);
 
   // Determine which feeds to fetch — client passes enabled source names
@@ -28,7 +39,16 @@ export async function GET(request: Request) {
     fetchGitHubTrending(),
   ]);
 
-  let allItems = [...rssItems, ...hnItems, ...ghItems];
+  // Fetch AI blog scrapers (Anthropic Research + Kimi/Moonshot Blog)
+  const aiBlogItems = await Promise.all([
+    fetchAnthropicResearch(),
+    fetchKimiBlog(),
+  ]).then(results => results.flat());
+
+  // Fetch Firecrawl scraped content
+  const firecrawlItems = await fetchFirecrawl();
+
+  let allItems = [...rssItems, ...hnItems, ...ghItems, ...aiBlogItems, ...firecrawlItems];
 
   // Server-side time filtering (max 90 days)
   const daysParam = searchParams.get('days');

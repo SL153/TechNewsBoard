@@ -1,16 +1,19 @@
-const BOOKMARKS_KEY = 'technews-bookmarks';
-const SETTINGS_KEY = 'technews-settings';
-const FEEDS_KEY = 'technews-feeds';
-const CHAT_PROVIDER_KEY = 'technews-chat-provider';
+import {
+  readBookmarks,
+  writeFeeds,
+  readSettings,
+  readChatProvider,
+} from '@/lib/state-manager';
+import { loadFeeds } from '@/lib/feed-store'; // feed-store has its own CRUD ops
 
 export function exportAllData() {
   const data = {
     version: 1,
     exportedAt: new Date().toISOString(),
-    bookmarks: loadBookmarks(),
-    settings: loadSettings(),
+    bookmarks: readBookmarks(),
+    settings: readSettings(),
     feeds: loadFeeds(),
-    chatProvider: loadChatProvider(),
+    chatProvider: readChatProvider(),
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -22,7 +25,7 @@ export function exportAllData() {
 }
 
 export function exportBookmarks() {
-  const data = { version: 1, exportedAt: new Date().toISOString(), bookmarks: loadBookmarks() };
+  const data = { version: 1, exportedAt: new Date().toISOString(), bookmarks: readBookmarks() };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -33,7 +36,7 @@ export function exportBookmarks() {
 }
 
 export function exportSettings() {
-  const data = { version: 1, exportedAt: new Date().toISOString(), settings: loadSettings() };
+  const data = { version: 1, exportedAt: new Date().toISOString(), settings: readSettings() };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -52,38 +55,4 @@ export function exportFeeds() {
   a.download = `technews-feeds-${new Date().toISOString().slice(0, 10)}.json`;
   a.click();
   URL.revokeObjectURL(url);
-}
-
-function loadBookmarks() {
-  if (typeof window === 'undefined') return [];
-  try {
-    const stored = localStorage.getItem(BOOKMARKS_KEY);
-    return stored ? JSON.parse(stored) : [];
-  } catch { return []; }
-}
-
-function loadSettings() {
-  if (typeof window === 'undefined') return null;
-  try {
-    const stored = localStorage.getItem(SETTINGS_KEY);
-    return stored ? JSON.parse(stored) : null;
-  } catch { return null; }
-}
-
-function loadFeeds() {
-  if (typeof window === 'undefined') return [];
-  try {
-    const stored = localStorage.getItem(FEEDS_KEY);
-    if (!stored) return [];
-    const data = JSON.parse(stored);
-    return data.sources || [];
-  } catch { return []; }
-}
-
-function loadChatProvider() {
-  if (typeof window === 'undefined') return null;
-  try {
-    const stored = localStorage.getItem(CHAT_PROVIDER_KEY);
-    return stored ? JSON.parse(stored) : null;
-  } catch { return null; }
 }

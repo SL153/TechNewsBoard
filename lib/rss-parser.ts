@@ -14,6 +14,7 @@ export interface ParsedNewsItem {
   source: string;
   language?: string | null;
   gradientClass?: string;
+  tags?: string[];
 }
 
 function stripCDATA(str: string): string {
