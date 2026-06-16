@@ -36,6 +36,9 @@ export default function PhantomDome({
   maxArc = 150,
   maxTilt = 34,
   className = '',
+  initialOffsetDeg = 0,
+  verticalDamping = 1,
+  onNearRightEdge,
 }) {
   const stageRef = useRef(null);
 
@@ -48,19 +51,20 @@ export default function PhantomDome({
   const lastPosRef = useRef({ x: 0, y: 0 });
   const rafRef = useRef(null);
   const [grabbing, setGrabbing] = useState(false);
+  const offsetAppliedRef = useRef(false);
 
   // ── Grid sizing ────────────────────────────────────────────────
   const RAD = 180 / Math.PI;
-  const MAX_ROWS = 4;
-  const gapPx = 36;
-  const rowGapPx = 52;
+  const MAX_ROWS = 3;
+  const gapPx = 18;      // tighter horizontal spacing
+  const rowGapPx = 26;   // tighter vertical spacing
   const colStep = Math.min(anglePerColumn, ((cardWidth + gapPx) / radius) * RAD);
   const rowStep = ((cardHeight + rowGapPx) / radius) * RAD;
 
-  // Respect both the geometric arc limit and the row-cap.
-  const maxColsByArc = Math.floor(maxArc / colStep) + 1;
+  // With left-anchored layout we let the sphere grow as wide as needed
+  // (up to the 300-card soft cap). This gives a much fuller initial view.
   const neededCols = Math.ceil(items.length / MAX_ROWS);
-  const columnCount = Math.max(3, Math.min(maxColsByArc, neededCols));
+  const columnCount = Math.max(3, neededCols);
 
   // Distribute items column-major (fill each column top-to-bottom first)
   const columns = Array.from({ length: columnCount }, () => []);
@@ -69,7 +73,13 @@ export default function PhantomDome({
     if (col < columnCount) columns[col].push({ item, index: i });
   });
 
-  const midCol = (columnCount - 1) / 2;
+  // Anchor the LEFT edge so that when we append more columns on the right,
+  // existing cards do not shift left. This matches "start from the left".
+  const LEFT_ANCHOR_DEG = -80; // fixed leftmost longitude for column 0
+
+  // Longitude for each column is now relative to a fixed left anchor,
+  // not centered on midCol. This prevents existing cards from moving left
+  // when new batches are appended on the right.
 
   // ── Transform application ──────────────────────────────────────
   const applyTransform = useCallback(() => {
@@ -80,8 +90,12 @@ export default function PhantomDome({
     }
   }, [radius]);
 
-  const maxRotY = midCol * colStep + 14;
-  const clampY = useCallback((v) => Math.max(-maxRotY, Math.min(maxRotY, v)), [maxRotY]);
+  // The visible arc is anchored on the left.
+  // Camera (rotY) can travel from LEFT_ANCHOR_DEG to rightEdgeDeg.
+  const rightEdgeDeg = LEFT_ANCHOR_DEG + (columnCount - 1) * colStep;
+  const minRotY = LEFT_ANCHOR_DEG - 10;
+  const maxRotY = rightEdgeDeg + 10;
+  const clampY = useCallback((v) => Math.max(minRotY, Math.min(maxRotY, v)), [minRotY, maxRotY]);
   const clampX = useCallback((v) => Math.max(-maxTilt, Math.min(maxTilt, v)), [maxTilt]);
 
   // ── Inertia loop ───────────────────────────────────────────────
@@ -94,6 +108,13 @@ export default function PhantomDome({
       if (Math.abs(velYRef.current) < stop) velYRef.current = 0;
       rotYRef.current = clampY(rotYRef.current + velYRef.current);
       if (Math.abs(rotYRef.current) >= maxRotY) velYRef.current *= -0.25;
+
+      // Notify parent when approaching right edge (4B)
+      // In the anchored system the right edge is at +rightEdgeDeg.
+      if (onNearRightEdge && typeof onNearRightEdge === 'function') {
+        const distToRight = rightEdgeDeg - rotYRef.current;
+        if (distToRight < 30) onNearRightEdge(rotYRef.current, rightEdgeDeg);
+      }
 
       velXRef.current *= friction;
       if (Math.abs(velXRef.current) < stop) velXRef.current = 0;
@@ -110,6 +131,15 @@ export default function PhantomDome({
     rafRef.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafRef.current);
   }, [applyTransform, tick]);
+
+  // Apply one-time initial offset if provided (2C)
+  useEffect(() => {
+    if (!offsetAppliedRef.current && initialOffsetDeg) {
+      rotYRef.current = initialOffsetDeg;
+      offsetAppliedRef.current = true;
+      applyTransform();
+    }
+  }, [initialOffsetDeg, applyTransform]);
 
   // ── Pointer drag (both axes) ───────────────────────────────────
   useEffect(() => {
@@ -137,7 +167,7 @@ export default function PhantomDome({
       rotYRef.current = clampY(rotYRef.current + dY);
       velYRef.current = dY;
 
-      const dX = -dy * sens;       // drag down → tilt up (reveal top)
+      const dX = -dy * sens * (verticalDamping ?? 1); // drag down → tilt up (reveal top)
       rotXRef.current = clampX(rotXRef.current + dX);
       velXRef.current = dX;
 
@@ -168,7 +198,7 @@ export default function PhantomDome({
       e.preventDefault();
       const sens = 0.03;
       if (e.deltaX || e.shiftKey) velYRef.current += (e.deltaX || e.deltaY) * sens;
-      if (e.deltaY && !e.shiftKey) velXRef.current += e.deltaY * sens;
+      if (e.deltaY && !e.shiftKey) velXRef.current += e.deltaY * sens * (verticalDamping ?? 1);
     }
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
@@ -183,7 +213,7 @@ export default function PhantomDome({
       <div className="phantom-cylinder-scene">
         <div ref={stageRef} className="phantom-cylinder-stage">
           {columns.map((bucket, col) => {
-            const lon = (col - midCol) * colStep;
+            const lon = LEFT_ANCHOR_DEG + col * colStep;
             const midRow = (bucket.length - 1) / 2;
             return bucket.map(({ item, index }, row) => {
               const lat = (row - midRow) * rowStep;

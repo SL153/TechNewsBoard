@@ -90,6 +90,12 @@ export default function Home() {
   const [selectedLanguage, setSelectedLanguage] = useState('English');
   const [clock, setClock] = useState('');
 
+  // Progressive reveal (client-side only, 1A)
+  const MAX_VISIBLE = 300;
+  const BATCH_SIZE = 18; // 6 columns × 3 rows
+  const [visibleCount, setVisibleCount] = useState(120); // initial 40 columns — dense starting view
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+
   useEffect(() => {
     fetchNews();
   }, [dayRange, selectedCategories, debouncedSearchQuery, selectedLanguage]);
@@ -241,6 +247,9 @@ export default function Home() {
     return new Date(a.pubDate || 0) - new Date(b.pubDate || 0);
   });
 
+  // Apply progressive reveal cap (1A + 7B)
+  const visibleNews = sortedNews.slice(0, Math.min(visibleCount, MAX_VISIBLE));
+
   function formatRelativeTime(pubDate) {
     if (!pubDate) return '';
     try {
@@ -259,6 +268,24 @@ export default function Home() {
 
   function isFavicon(itemImage) {
     return itemImage?.includes('www.google.com/s2/favicons') ?? false;
+  }
+
+  // Progressive reveal handler (1A, 3B, 4B, 7B)
+  function handleNearRightEdge(currentRotY, maxRotY) {
+    if (isLoadingMore) return;
+    if (visibleCount >= MAX_VISIBLE) return;
+    if (visibleCount >= sortedNews.length) return;
+
+    // In the anchored system, right edge is at +rightEdgeDeg (passed as maxRotY).
+    const distToRight = maxRotY - currentRotY;
+    if (distToRight < 30) {
+      setIsLoadingMore(true);
+      // small delay so ghost cards are visible
+      setTimeout(() => {
+        setVisibleCount(c => Math.min(c + BATCH_SIZE, MAX_VISIBLE, sortedNews.length));
+        setIsLoadingMore(false);
+      }, 180);
+    }
   }
 
   function toggleArticleSelection(item) {
@@ -404,9 +431,9 @@ export default function Home() {
         <div className="flex items-start gap-4">
           <div className="hidden sm:flex flex-col items-end gap-1 mr-1">
             <span className="phantom-mono text-white/70">{clock}</span>
-            <span className="phantom-mono-dim">
-              {sortedNews.length} stories · {new Set(sortedNews.map(n => n.source)).size} sources
-            </span>
+              <span className="phantom-mono-dim">
+                {visibleNews.length} stories · {new Set(visibleNews.map(n => n.source)).size} sources
+              </span>
           </div>
           <div className="flex items-center gap-1">
             <Link href="/bookmarks" className="relative p-2 rounded-full hover:bg-white/10 text-white/50 hover:text-white transition-colors" aria-label="Bookmarks">
@@ -453,17 +480,29 @@ export default function Home() {
         </div>
       )}
 
-      {!loading && !error && sortedNews.length > 0 && (
+      {!loading && !error && visibleNews.length > 0 && (
         <PhantomDome
-          items={sortedNews}
+          items={visibleNews}
           renderItem={renderCard}
           cardWidth={320}
           cardHeight={320}
           radius={2100}
           anglePerColumn={13}
-          maxArc={150}
+          maxArc={300}
           maxTilt={34}
+          initialOffsetDeg={-57}
+          verticalDamping={0.25}
+          onNearRightEdge={handleNearRightEdge}
         />
+      )}
+
+      {/* Ghost cards while loading next batch (6B) */}
+      {!loading && !error && isLoadingMore && visibleNews.length > 0 && (
+        <div className="fixed bottom-28 right-8 z-50 flex gap-2 opacity-40">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="w-[72px] h-[72px] rounded-lg border border-white/20 bg-white/5 animate-pulse" />
+          ))}
+        </div>
       )}
 
       {/* Drag hint */}
