@@ -198,17 +198,17 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 22vw;
+  width: 10vw;
   pointer-events: none;
   z-index: 5;
 }
 .phantom-vignette-left {
   left: 0;
-  background: linear-gradient(90deg, #000 0%, rgba(0, 0, 0, 0.7) 35%, transparent 100%);
+  background: linear-gradient(90deg, #000 0%, rgba(0, 0, 0, 0.6) 40%, transparent 100%);
 }
 .phantom-vignette-right {
   right: 0;
-  background: linear-gradient(270deg, #000 0%, rgba(0, 0, 0, 0.7) 35%, transparent 100%);
+  background: linear-gradient(270deg, #000 0%, rgba(0, 0, 0, 0.6) 40%, transparent 100%);
 }
 
 /* Top / bottom vignettes for vertical dome curvature */
@@ -217,17 +217,17 @@
   position: absolute;
   left: 0;
   right: 0;
-  height: 18vh;
+  height: 12vh;
   pointer-events: none;
   z-index: 5;
 }
 .phantom-vignette-top {
   top: 0;
-  background: linear-gradient(180deg, #000 0%, rgba(0, 0, 0, 0.6) 40%, transparent 100%);
+  background: linear-gradient(180deg, #000 0%, rgba(0, 0, 0, 0.5) 45%, transparent 100%);
 }
 .phantom-vignette-bottom {
   bottom: 0;
-  background: linear-gradient(0deg, #000 0%, rgba(0, 0, 0, 0.6) 40%, transparent 100%);
+  background: linear-gradient(0deg, #000 0%, rgba(0, 0, 0, 0.5) 45%, transparent 100%);
 }
 
 .phantom-card {
@@ -705,4 +705,21 @@ body {
 }
 .dark .chat-markdown th {
   background: rgba(255,255,255,0.05);
+}
+
+/* News-left indicator floating badge */
+.phantom-news-left {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: oklch(0.65 0 0);
+  background: oklch(0.1 0 0 / 0.95);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid oklch(1 0 0 / 10%);
+  pointer-events: none;
+  transition: opacity 0.3s ease;
 }

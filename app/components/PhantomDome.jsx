@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useEffect, useState, useCallback } from 'react';
+import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 
 /**
  * PhantomDome — a full-bleed spherical "video wall" inspired by phantom.land.
@@ -41,6 +41,37 @@ export default function PhantomDome({
   onNearRightEdge,
 }) {
   const stageRef = useRef(null);
+  const [, forceUpdate] = useState(0);
+
+  // ── Stable grid sizing (memoized to prevent recalculation jitter) ──
+  const { colStep, rowStep, columns, rightEdgeDeg } = useMemo(() => {
+    const RAD_ = 180 / Math.PI;
+    const MAX_ROWS = 3;
+    const gapPx = 18;      // tighter horizontal spacing
+    const rowGapPx = 26;   // tighter vertical spacing
+    const colStep_ = Math.min(anglePerColumn, ((cardWidth + gapPx) / radius) * RAD_);
+    const rowStep_ = ((cardHeight + rowGapPx) / radius) * RAD_;
+
+    const neededCols = Math.ceil(items.length / MAX_ROWS);
+    const columnCount = Math.max(3, neededCols);
+
+    // Distribute items column-major (fill each column top-to-bottom first)
+    const cols = Array.from({ length: columnCount }, () => []);
+    items.forEach((item, i) => {
+      const col = Math.floor(i / MAX_ROWS);
+      if (col < columnCount) cols[col].push({ item, index: i });
+    });
+
+    const LEFT_ANCHOR_DEG = -80;
+    const rightEdgeDeg_ = LEFT_ANCHOR_DEG + (columnCount - 1) * colStep_;
+
+    return {
+      colStep: colStep_,
+      rowStep: rowStep_,
+      columns: cols,
+      rightEdgeDeg: rightEdgeDeg_,
+    };
+  }, [items, cardWidth, cardHeight, radius, anglePerColumn]);
 
   const rotYRef = useRef(0);   // longitude spin (horizontal)
   const velYRef = useRef(0);
@@ -53,50 +84,24 @@ export default function PhantomDome({
   const [grabbing, setGrabbing] = useState(false);
   const offsetAppliedRef = useRef(false);
 
-  // ── Grid sizing ────────────────────────────────────────────────
-  const RAD = 180 / Math.PI;
-  const MAX_ROWS = 3;
-  const gapPx = 18;      // tighter horizontal spacing
-  const rowGapPx = 26;   // tighter vertical spacing
-  const colStep = Math.min(anglePerColumn, ((cardWidth + gapPx) / radius) * RAD);
-  const rowStep = ((cardHeight + rowGapPx) / radius) * RAD;
+  const LEFT_ANCHOR_DEG = -80;
 
-  // With left-anchored layout we let the sphere grow as wide as needed
-  // (up to the 300-card soft cap). This gives a much fuller initial view.
-  const neededCols = Math.ceil(items.length / MAX_ROWS);
-  const columnCount = Math.max(3, neededCols);
-
-  // Distribute items column-major (fill each column top-to-bottom first)
-  const columns = Array.from({ length: columnCount }, () => []);
-  items.forEach((item, i) => {
-    const col = Math.floor(i / MAX_ROWS);
-    if (col < columnCount) columns[col].push({ item, index: i });
-  });
-
-  // Anchor the LEFT edge so that when we append more columns on the right,
-  // existing cards do not shift left. This matches "start from the left".
-  const LEFT_ANCHOR_DEG = -80; // fixed leftmost longitude for column 0
-
-  // Longitude for each column is now relative to a fixed left anchor,
-  // not centered on midCol. This prevents existing cards from moving left
-  // when new batches are appended on the right.
+  // The visible arc is anchored on the left.
+  const minRotY = LEFT_ANCHOR_DEG - 10;
+  const maxRotY = rightEdgeDeg + 10;
+  const clampY = useCallback((v) => Math.max(minRotY, Math.min(maxRotY, v)), [minRotY, maxRotY]);
+  const clampX = useCallback((v) => Math.max(-maxTilt, Math.min(maxTilt, v)), [maxTilt]);
 
   // ── Transform application ──────────────────────────────────────
   const applyTransform = useCallback(() => {
     const stage = stageRef.current;
     if (stage) {
+      const w = typeof window !== 'undefined' ? window.innerWidth : 1920;
+      const s = Math.max(0.55, Math.min(w / 2130, 1));
       stage.style.transform =
-        `translateZ(${radius}px) rotateX(${rotXRef.current}deg) rotateY(${rotYRef.current}deg)`;
+        `translateZ(${radius}px) rotateX(${rotXRef.current}deg) rotateY(${rotYRef.current}deg) scale(${s})`;
     }
   }, [radius]);
-
-  // The visible arc is anchored on the left.
-  // Camera (rotY) can travel from LEFT_ANCHOR_DEG to rightEdgeDeg.
-  const rightEdgeDeg = LEFT_ANCHOR_DEG + (columnCount - 1) * colStep;
-  const minRotY = LEFT_ANCHOR_DEG - 10;
-  const maxRotY = rightEdgeDeg + 10;
-  const clampY = useCallback((v) => Math.max(minRotY, Math.min(maxRotY, v)), [minRotY, maxRotY]);
-  const clampX = useCallback((v) => Math.max(-maxTilt, Math.min(maxTilt, v)), [maxTilt]);
 
   // ── Inertia loop ───────────────────────────────────────────────
   const tick = useCallback(() => {
@@ -110,7 +115,6 @@ export default function PhantomDome({
       if (Math.abs(rotYRef.current) >= maxRotY) velYRef.current *= -0.25;
 
       // Notify parent when approaching right edge (4B)
-      // In the anchored system the right edge is at +rightEdgeDeg.
       if (onNearRightEdge && typeof onNearRightEdge === 'function') {
         const distToRight = rightEdgeDeg - rotYRef.current;
         if (distToRight < 30) onNearRightEdge(rotYRef.current, rightEdgeDeg);
@@ -124,7 +128,7 @@ export default function PhantomDome({
       applyTransform();
     }
     rafRef.current = requestAnimationFrame(tick);
-  }, [applyTransform, clampY, clampX, maxRotY, maxTilt]);
+  }, [applyTransform, clampY, clampX, maxRotY, maxTilt, rightEdgeDeg, onNearRightEdge]);
 
   useEffect(() => {
     applyTransform();
@@ -140,6 +144,9 @@ export default function PhantomDome({
       applyTransform();
     }
   }, [initialOffsetDeg, applyTransform]);
+
+  // ── UI state for news-left indicator ──
+  const [hoveredTile, setHoveredTile] = useState(null);
 
   // ── Pointer drag (both axes) ───────────────────────────────────
   useEffect(() => {
@@ -219,7 +226,7 @@ export default function PhantomDome({
               const lat = (row - midRow) * rowStep;
               return (
                 <div
-                  key={index}
+                  key={`tile-${index}`}
                   className="phantom-tile phantom-animate"
                   style={{
                     width: `${cardWidth}px`,

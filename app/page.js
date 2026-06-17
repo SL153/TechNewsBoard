@@ -490,10 +490,17 @@ export default function Home() {
           anglePerColumn={13}
           maxArc={300}
           maxTilt={34}
-          initialOffsetDeg={-57}
+          initialOffsetDeg={70}
           verticalDamping={0.25}
           onNearRightEdge={handleNearRightEdge}
         />
+      )}
+
+      {/* News-left counter floating above the wall */}
+      {!loading && !error && sortedNews.length > 0 && (
+        <div className="fixed bottom-[68px] left-1/2 -translate-x-1/2 z-40 phantom-news-left">
+          {visibleNews.length < sortedNews.length ? `${sortedNews.length - visibleNews.length} more` : 'All loaded'}
+        </div>
       )}
 
       {/* Ghost cards while loading next batch (6B) */}
