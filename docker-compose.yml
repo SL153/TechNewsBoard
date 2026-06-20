@@ -1,0 +1,14 @@
+services:
+  app:
+    build: .
+    image: technewsboard:latest
+    container_name: technewsboard
+    ports:
+      - "5001:3000"
+    # RDB snapshots survive container recreation via this named volume.
+    volumes:
+      - technews-redis:/data
+    restart: unless-stopped
+
+volumes:
+  technews-redis:

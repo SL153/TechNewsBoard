@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { RefreshCw, Moon, Sun, ExternalLink, Clock, Search, Bookmark, BookmarkCheck, Settings, X, ArrowUpRight, MessageCircle, Rss, SlidersHorizontal, MousePointer2 } from 'lucide-react';
+import { RefreshCw, Moon, Sun, ExternalLink, Clock, Search, Bookmark, BookmarkCheck, Settings, X, ArrowUpRight, MessageCircle, Rss, SlidersHorizontal, MousePointer2, Rocket, Smartphone, Sparkles, Lightbulb, Code, Flame, Newspaper } from 'lucide-react';
 import Link from 'next/link';
 import ChatSidebar from './components/ChatSidebar';
 import ChatProviderSettings from './components/ChatProviderSettings';
@@ -14,6 +14,24 @@ import * as NotificationStore from '@/lib/notification-store';
 
 const CATEGORY_MAP = ['All', 'Startups', 'Consumer Tech', 'AI', 'Innovation', 'Open Source'];
 const LANGUAGES = ['English', '繁體中文'];
+
+// Per-category accent system: gradient stripe, hover-glow colour, pill colour,
+// and an icon — so cards stand out by category at a glance.
+const CATEGORY_ACCENTS = {
+  'Startups':      { gradient: 'from-sky-500 to-indigo-600',     glow: 'oklch(0.62 0.19 255 / 0.20)', pill: 'oklch(0.55 0.18 255 / 0.9)',  icon: Rocket },
+  'Consumer Tech': { gradient: 'from-cyan-400 to-teal-500',      glow: 'oklch(0.7 0.14 195 / 0.20)',  pill: 'oklch(0.6 0.14 195 / 0.9)',  icon: Smartphone },
+  'AI':            { gradient: 'from-violet-500 to-fuchsia-600', glow: 'oklch(0.62 0.2 300 / 0.20)',  pill: 'oklch(0.55 0.2 300 / 0.9)',  icon: Sparkles },
+  'Innovation':    { gradient: 'from-amber-400 to-orange-600',   glow: 'oklch(0.72 0.17 65 / 0.20)',  pill: 'oklch(0.62 0.16 65 / 0.9)',  icon: Lightbulb },
+  'Open Source':   { gradient: 'from-emerald-500 to-green-600',  glow: 'oklch(0.7 0.15 160 / 0.20)',  pill: 'oklch(0.58 0.15 160 / 0.9)', icon: Code },
+};
+const DEFAULT_ACCENT = { gradient: 'from-slate-500 to-gray-700', glow: 'oklch(0.6 0.02 264 / 0.15)', pill: 'oklch(0.4 0.02 264 / 0.9)', icon: Newspaper };
+
+function accentFor(item) {
+  if (item.source === 'Hacker News') {
+    return { gradient: 'from-orange-500 to-red-600', glow: 'oklch(0.65 0.2 35 / 0.20)', pill: 'oklch(0.58 0.19 35 / 0.9)', icon: Flame };
+  }
+  return CATEGORY_ACCENTS[item.category] || DEFAULT_ACCENT;
+}
 const DAY_RANGES = [
   { label: 'Today', days: 1 },
   { label: '3 Days', days: 3 },
@@ -22,14 +40,10 @@ const DAY_RANGES = [
   { label: '30 Days', days: 30 },
   { label: '90 Days', days: 90 },
 ];
-const REFRESH_INTERVALS = [
-  { label: 'Off', value: 0 },
-  { label: '15 min', value: 900000 },
-  { label: '30 min', value: 1800000 },
-  { label: '1 hour', value: 3600000 },
-  { label: '3 hours', value: 10800000 },
-  { label: '12 hours', value: 43200000 },
-];
+// Refresh interval is fixed at 15 min and controlled server-side via the
+// Redis cache TTL — the frontend cannot change it. The auto-refresh below only
+// re-reads the cached API; it never forces an upstream fetch.
+const AUTO_REFRESH_MS = 15 * 60 * 1000;
 
 const BOOKMARKS_KEY = 'technews-bookmarks';
 const SETTINGS_KEY = 'technews-settings';
@@ -73,7 +87,6 @@ export default function Home() {
   const [dayRange, setDayRange] = useState(3);
   const [sortBy, setSortBy] = useState('newest');
   const [darkMode, setDarkMode] = useState(true);
-  const [autoRefreshInterval, setAutoRefreshInterval] = useState(1800000);
   const [lastFetchTime, setLastFetchTime] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
@@ -90,11 +103,13 @@ export default function Home() {
   const [selectedLanguage, setSelectedLanguage] = useState('English');
   const [clock, setClock] = useState('');
 
-  // Progressive reveal (client-side only, 1A)
-  const MAX_VISIBLE = 300;
-  const BATCH_SIZE = 18; // 6 columns × 3 rows
-  const [visibleCount, setVisibleCount] = useState(120); // initial 40 columns — dense starting view
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  // Sliding-window feed: PhantomDome windows the full list itself. This key
+  // changes whenever the active filters change, telling PhantomDome to jump
+  // back to the start of the newly-filtered list.
+  const resetKey = `${[...(selectedCategories || [])].sort().join(',')}|${[...(selectedSources || [])].sort().join(',')}|${dayRange}|${sortBy}|${debouncedSearchQuery}|${selectedLanguage}`;
+
+  // Current window range reported by PhantomDome, for the position indicator.
+  const [windowInfo, setWindowInfo] = useState({ from: 0, to: 0, total: 0 });
 
   useEffect(() => {
     fetchNews();
@@ -110,24 +125,25 @@ export default function Home() {
     const savedSettings = loadSettings();
     if (savedSettings) {
       setDarkMode(savedSettings.darkMode ?? true);
-      setAutoRefreshInterval(savedSettings.autoRefreshInterval ?? 1800000);
     }
   }, []);
 
   useEffect(() => {
-    saveSettings({ darkMode, autoRefreshInterval });
-  }, [darkMode, autoRefreshInterval]);
+    saveSettings({ darkMode });
+  }, [darkMode]);
 
   useEffect(() => {
     if (darkMode) document.documentElement.classList.add('dark');
     else document.documentElement.classList.remove('dark');
   }, [darkMode]);
 
+  // Fixed 15-min auto-refresh — re-reads the cached API (Redis is authoritative
+  // for when upstream is actually re-fetched).
   useEffect(() => {
-    if (autoRefreshInterval === 0 || loading) return;
-    const interval = setInterval(async () => { await fetchNews(true); }, autoRefreshInterval);
+    if (loading) return;
+    const interval = setInterval(() => { fetchNews(); }, AUTO_REFRESH_MS);
     return () => clearInterval(interval);
-  }, [autoRefreshInterval, loading]);
+  }, [loading]);
 
   // Debounce search
   useEffect(() => {
@@ -146,12 +162,11 @@ export default function Home() {
     return () => clearInterval(id);
   }, []);
 
-  async function fetchNews(isRefresh = false) {
+  async function fetchNews() {
     setLoading(true);
     setError(null);
     try {
       const params = new URLSearchParams();
-      if (isRefresh) params.set('refresh', 'true');
       if (dayRange < Infinity && dayRange !== undefined) params.set('days', String(dayRange));
 
       const cats = selectedCategories || new Set(['All']);
@@ -247,8 +262,7 @@ export default function Home() {
     return new Date(a.pubDate || 0) - new Date(b.pubDate || 0);
   });
 
-  // Apply progressive reveal cap (1A + 7B)
-  const visibleNews = sortedNews.slice(0, Math.min(visibleCount, MAX_VISIBLE));
+  // sortedNews feeds the sliding-window wall directly (PhantomDome windows it).
 
   function formatRelativeTime(pubDate) {
     if (!pubDate) return '';
@@ -268,24 +282,6 @@ export default function Home() {
 
   function isFavicon(itemImage) {
     return itemImage?.includes('www.google.com/s2/favicons') ?? false;
-  }
-
-  // Progressive reveal handler (1A, 3B, 4B, 7B)
-  function handleNearRightEdge(currentRotY, maxRotY) {
-    if (isLoadingMore) return;
-    if (visibleCount >= MAX_VISIBLE) return;
-    if (visibleCount >= sortedNews.length) return;
-
-    // In the anchored system, right edge is at +rightEdgeDeg (passed as maxRotY).
-    const distToRight = maxRotY - currentRotY;
-    if (distToRight < 30) {
-      setIsLoadingMore(true);
-      // small delay so ghost cards are visible
-      setTimeout(() => {
-        setVisibleCount(c => Math.min(c + BATCH_SIZE, MAX_VISIBLE, sortedNews.length));
-        setIsLoadingMore(false);
-      }, 180);
-    }
   }
 
   function toggleArticleSelection(item) {
@@ -322,8 +318,15 @@ export default function Home() {
     const isSelected = selectedArticles.has(itemKey);
     const favicon = isFavicon(item.image);
     const hasRealImage = item.image && !favicon;
+    const accent = accentFor(item);
+    const Icon = accent.icon;
+    // GitHub Trending items keep their per-language gradient; everything else uses the category accent.
+    const stripeGradient = item.gradientClass || accent.gradient;
     return (
-      <div className={`phantom-card group relative flex flex-col h-full ${isSelected ? 'ring-1 ring-blue-400/50' : ''}`}>
+      <div
+        className={`phantom-card group relative flex flex-col h-full ${isSelected ? 'ring-1 ring-blue-400/50' : ''}`}
+        style={{ '--card-glow': accent.glow }}
+      >
         {/* Selection checkbox */}
         <button
           onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleArticleSelection(item); }}
@@ -344,9 +347,8 @@ export default function Home() {
           {isBookmarked(itemKey) ? <BookmarkCheck size={13} /> : <Bookmark size={13} />}
         </button>
 
-        {item.gradientClass && (
-          <div className={`absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r ${item.gradientClass} z-10`} />
-        )}
+        {/* Category accent stripe (always on) */}
+        <div className={`absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r ${stripeGradient} z-10`} />
 
         <a href={item.link} target="_blank" rel="noopener noreferrer" className="flex flex-col h-full" draggable="false">
           {/* Image region — uniform height; gradient placeholder when no image */}
@@ -363,8 +365,12 @@ export default function Home() {
                 <span className="text-[15px] tracking-[0.08em] text-white/20 font-medium text-center px-3">{item.source}</span>
               </div>
             )}
-            {/* Category pill overlaid on image (bottom-left) */}
-            <span className="absolute bottom-2 left-2 z-10 px-2 py-0.5 rounded text-[9px] tracking-wider uppercase bg-black/60 backdrop-blur text-white/80">
+            {/* Category pill overlaid on image (bottom-left) — colored by category */}
+            <span
+              className="absolute bottom-2 left-2 z-10 flex items-center gap-1 px-2 py-0.5 rounded text-[9px] tracking-wider uppercase font-medium text-white"
+              style={{ background: accent.pill }}
+            >
+              <Icon size={9} />
               {item.category}
             </span>
           </div>
@@ -401,8 +407,6 @@ export default function Home() {
     );
   }
 
-  const currentRefreshLabel = REFRESH_INTERVALS.find(i => i.value === autoRefreshInterval)?.label ?? 'Off';
-
   return (
     <div id="main-content" className="fixed inset-0 bg-black text-white overflow-hidden phantom-stage-bg">
       {/* ===== TOP BAR (corner-anchored, floats over the wall) ===== */}
@@ -413,17 +417,8 @@ export default function Home() {
             Innovation Board
           </Link>
           <div className="phantom-mono-dim flex items-center gap-2">
-            {autoRefreshInterval > 0 ? (
-              <>
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                Live · {currentRefreshLabel}
-              </>
-            ) : (
-              <>
-                <span className="w-1.5 h-1.5 rounded-full bg-white/30" />
-                Paused
-              </>
-            )}
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            Live · 15 min
           </div>
         </div>
 
@@ -432,7 +427,7 @@ export default function Home() {
           <div className="hidden sm:flex flex-col items-end gap-1 mr-1">
             <span className="phantom-mono text-white/70">{clock}</span>
               <span className="phantom-mono-dim">
-                {visibleNews.length} stories · {new Set(visibleNews.map(n => n.source)).size} sources
+                {sortedNews.length} stories · {new Set(sortedNews.map(n => n.source)).size} sources
               </span>
           </div>
           <div className="flex items-center gap-1">
@@ -444,7 +439,7 @@ export default function Home() {
                 </span>
               )}
             </Link>
-            <button onClick={() => fetchNews(true)} disabled={loading} aria-label="Refresh now" className="p-2 rounded-full hover:bg-white/10 text-white/50 hover:text-white transition-colors">
+            <button onClick={() => fetchNews()} disabled={loading} aria-label="Refresh now" className="p-2 rounded-full hover:bg-white/10 text-white/50 hover:text-white transition-colors">
               <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
             </button>
             <button onClick={() => setDarkMode(!darkMode)} aria-label="Toggle theme" className="p-2 rounded-full hover:bg-white/10 text-white/50 hover:text-white transition-colors">
@@ -469,7 +464,7 @@ export default function Home() {
         <div className="absolute inset-0 flex items-center justify-center z-10">
           <div className="phantom-panel max-w-sm text-center">
             <p className="text-sm text-white/70 mb-4">{error}</p>
-            <button onClick={() => fetchNews(true)} className="phantom-pill active">Try again</button>
+            <button onClick={() => fetchNews()} className="phantom-pill active">Try again</button>
           </div>
         </div>
       )}
@@ -480,35 +475,27 @@ export default function Home() {
         </div>
       )}
 
-      {!loading && !error && visibleNews.length > 0 && (
+      {!loading && !error && sortedNews.length > 0 && (
         <PhantomDome
-          items={visibleNews}
+          items={sortedNews}
           renderItem={renderCard}
+          resetKey={resetKey}
           cardWidth={320}
           cardHeight={320}
           radius={2100}
           anglePerColumn={13}
           maxArc={300}
           maxTilt={34}
-          initialOffsetDeg={70}
+          initialOffsetDeg={90}
           verticalDamping={0.25}
-          onNearRightEdge={handleNearRightEdge}
+          onWindowChange={setWindowInfo}
         />
       )}
 
-      {/* News-left counter floating above the wall */}
-      {!loading && !error && sortedNews.length > 0 && (
+      {/* Window position indicator (how many stories are in view) */}
+      {!loading && !error && sortedNews.length > 0 && windowInfo.total > 0 && (
         <div className="fixed bottom-[68px] left-1/2 -translate-x-1/2 z-40 phantom-news-left">
-          {visibleNews.length < sortedNews.length ? `${sortedNews.length - visibleNews.length} more` : 'All loaded'}
-        </div>
-      )}
-
-      {/* Ghost cards while loading next batch (6B) */}
-      {!loading && !error && isLoadingMore && visibleNews.length > 0 && (
-        <div className="fixed bottom-28 right-8 z-50 flex gap-2 opacity-40">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="w-[72px] h-[72px] rounded-lg border border-white/20 bg-white/5 animate-pulse" />
-          ))}
+          {windowInfo.from}–{windowInfo.to} of {windowInfo.total} stories
         </div>
       )}
 
@@ -648,14 +635,7 @@ export default function Home() {
             </div>
 
             <div className="space-y-6">
-              <div>
-                <p className="phantom-mono-dim mb-2.5">Auto-refresh interval</p>
-                <div className="flex flex-wrap gap-2">
-                  {REFRESH_INTERVALS.map(interval => (
-                    <button key={interval.value} onClick={() => setAutoRefreshInterval(interval.value)} className={`phantom-pill ${autoRefreshInterval === interval.value ? 'active' : ''}`}>{interval.label}</button>
-                  ))}
-                </div>
-              </div>
+              <p className="phantom-mono-dim">Auto-refresh: every 15 min (server-controlled via Redis cache)</p>
 
               <div className="pt-2 border-t border-white/10">
                 <button onClick={() => setFeedManagerOpen(!feedManagerOpen)} className={`phantom-pill ${feedManagerOpen ? 'active' : ''}`}>

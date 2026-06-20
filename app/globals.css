@@ -198,17 +198,17 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 10vw;
+  width: 6vw;
   pointer-events: none;
   z-index: 5;
 }
 .phantom-vignette-left {
   left: 0;
-  background: linear-gradient(90deg, #000 0%, rgba(0, 0, 0, 0.6) 40%, transparent 100%);
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.5) 0%, rgba(0, 0, 0, 0.2) 50%, transparent 100%);
 }
 .phantom-vignette-right {
   right: 0;
-  background: linear-gradient(270deg, #000 0%, rgba(0, 0, 0, 0.6) 40%, transparent 100%);
+  background: linear-gradient(270deg, rgba(0, 0, 0, 0.5) 0%, rgba(0, 0, 0, 0.2) 50%, transparent 100%);
 }
 
 /* Top / bottom vignettes for vertical dome curvature */
@@ -242,7 +242,7 @@
 .phantom-card:hover {
   border-color: oklch(1 0 0 / 22%);
   background: oklch(0.13 0 0);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7), 0 0 50px oklch(0.62 0.2 264 / 0.12);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7), 0 0 50px var(--card-glow, oklch(0.62 0.2 264 / 0.12));
 }
 
 /* Gradient placeholder for cards with no real image (uniform tiles) */
@@ -723,3 +723,26 @@ body {
   pointer-events: none;
   transition: opacity 0.3s ease;
 }
+
+/* Endless-scroll edge cues (true start / end of the list) */
+.phantom-edge-cue {
+  position: fixed;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 40;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: oklch(0.5 0 0);
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: oklch(0.1 0 0 / 0.8);
+  border: 1px solid oklch(1 0 0 / 8%);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  pointer-events: none;
+  animation: phantom-fadeIn 0.4s ease forwards;
+}
+.phantom-edge-cue-left { left: 18px; }
+.phantom-edge-cue-right { right: 18px; }

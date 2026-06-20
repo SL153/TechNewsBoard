@@ -1,0 +1,4 @@
+# Force LF for shell scripts and Dockerfiles — CRLF breaks the Alpine
+# docker-entrypoint.sh inside the container.
+*.sh text eol=lf
+Dockerfile text eol=lf

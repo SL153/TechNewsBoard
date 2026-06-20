@@ -2,6 +2,15 @@ import { fetchFeedWithFallback } from '@/lib/rss-parser';
 import { RSS_FEEDS } from '@/lib/news-sources';
 import { fetchHackerNews } from '@/lib/hacker-news';
 import { fetchGitHubTrending } from '@/lib/github-trending';
+import { withCache, type CacheStatus } from '@/lib/cache';
+
+// Refresh cadence is enforced server-side via the Redis TTL. News sources share
+// a standardized 15-min interval; GitHub Trending is a daily list, so it is
+// cached much longer to avoid needlessly re-scraping. The frontend cannot force
+// an upstream refresh — Redis (with SWR) is the sole authority.
+const TTL_RSS_SEC = 900;     // 15 min
+const TTL_HN_SEC = 900;      // 15 min
+const TTL_GH_SEC = 7200;     // 2 hours (GitHub Trending updates daily)
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -22,13 +31,30 @@ export async function GET(request: Request) {
     }
   }
 
-  const [rssItems, hnItems, ghItems] = await Promise.all([
-    Promise.all(feeds.map(f => fetchFeedWithFallback(f))).then(results => results.flat()),
-    fetchHackerNews(),
-    fetchGitHubTrending(),
+  const [rssResults, hnResult, ghResult] = await Promise.all([
+    Promise.all(
+      feeds.map(f =>
+        withCache(`feed:${f.url}`, TTL_RSS_SEC, () => fetchFeedWithFallback(f)),
+      ),
+    ),
+    withCache('hn:top', TTL_HN_SEC, fetchHackerNews),
+    withCache('gh:trending:daily', TTL_GH_SEC, fetchGitHubTrending),
   ]);
 
-  let allItems = [...rssItems, ...hnItems, ...ghItems];
+  const rssItems = rssResults.map(r => r.data).flat();
+  let allItems = [...rssItems, ...hnResult.data, ...ghResult.data];
+
+  // Summarise cache state across all sources for the X-Cache header.
+  const statuses: CacheStatus[] = [
+    ...rssResults.map(r => r.status),
+    hnResult.status,
+    ghResult.status,
+  ];
+  const cacheStatus: CacheStatus = statuses.every(s => s === 'HIT')
+    ? 'HIT'
+    : statuses.some(s => s === 'MISS')
+      ? 'MISS'
+      : 'STALE';
 
   // Server-side time filtering (max 90 days)
   const daysParam = searchParams.get('days');
@@ -72,5 +98,12 @@ export async function GET(request: Request) {
     }
   }
 
-  return Response.json(allItems);
+  return Response.json(allItems, {
+    headers: {
+      'X-Cache': cacheStatus,
+      // Response varies by query params (category/lang/feeds/q/days) so only the
+      // end-user's browser may cache it, briefly, to cut redundant calls.
+      'Cache-Control': 'private, max-age=60',
+    },
+  });
 }
