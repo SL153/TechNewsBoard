@@ -9,6 +9,7 @@ import FeedManager from './components/FeedManager';
 import DataImportExport from './components/DataImportExport';
 import NotificationSettings from './components/NotificationSettings';
 import PhantomDome from './components/PhantomDome';
+import ArticleReader from './components/ArticleReader';
 import { getEnabledSources } from '@/lib/feed-store';
 import * as NotificationStore from '@/lib/notification-store';
 
@@ -78,6 +79,29 @@ function saveSettings(settings) {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
 }
 
+// Load the user's connected chat provider from storage (independent of the
+// Settings panel being opened) so summaries can prefer it.
+function loadChatProvider() {
+  if (typeof window === 'undefined') return null;
+  try {
+    const active = localStorage.getItem('technews-chat-active-type');
+    if (!active) return null;
+    const all = JSON.parse(localStorage.getItem('technews-chat-providers') || '{}');
+    const c = all[active];
+    if (!c || !c.endpoint || !c.model) return null;
+    return {
+      type: active,
+      endpoint: c.endpoint,
+      apiKey: c.apiKey || '',
+      model: c.model,
+      requestFormat: c.requestFormat,
+      customAuthType: c.customAuthType,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export default function Home() {
   const [news, setNews] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -99,6 +123,7 @@ export default function Home() {
   const [feedManagerOpen, setFeedManagerOpen] = useState(false);
   const [selectedArticles, setSelectedArticles] = useState(new Set());
   const [focusArticle, setFocusArticle] = useState(null);
+  const [readerArticle, setReaderArticle] = useState(null);
   const [compareArticles, setCompareArticles] = useState(null);
   const [selectedLanguage, setSelectedLanguage] = useState('English');
   const [clock, setClock] = useState('');
@@ -119,6 +144,7 @@ export default function Home() {
     setSelectedCategories(new Set(['All']));
     setSelectedSources(new Set());
     setBookmarks(loadBookmarks());
+    setChatProvider(loadChatProvider());
   }, []);
 
   useEffect(() => {
@@ -330,7 +356,7 @@ export default function Home() {
         {/* Selection checkbox */}
         <button
           onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleArticleSelection(item); }}
-          className="absolute top-3 left-3 z-20 p-1 rounded-md bg-black/80 border border-white/10 opacity-0 group-hover:opacity-100 transition-opacity"
+          className="phantom-on-dark absolute top-3 left-3 z-20 p-1 rounded-md bg-black/80 border border-white/10 opacity-0 group-hover:opacity-100 transition-opacity"
           aria-label="Select article"
         >
           <div className={`w-3.5 h-3.5 rounded-sm flex items-center justify-center ${isSelected ? 'bg-blue-500' : 'border border-white/20'}`}>
@@ -350,7 +376,20 @@ export default function Home() {
         {/* Category accent stripe (always on) */}
         <div className={`absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r ${stripeGradient} z-10`} />
 
-        <a href={item.link} target="_blank" rel="noopener noreferrer" className="flex flex-col h-full" draggable="false">
+        <a
+          href={item.link}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => {
+            // Plain left-click opens the in-app reader; keep native new-tab for
+            // middle-click and ⌘/Ctrl/Shift-click.
+            if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
+            e.preventDefault();
+            setReaderArticle(item);
+          }}
+          className="flex flex-col h-full"
+          draggable="false"
+        >
           {/* Image region — uniform height; gradient placeholder when no image */}
           <div className="relative h-[180px] flex-shrink-0 overflow-hidden bg-white/5 flex items-center justify-center">
             {hasRealImage ? (
@@ -367,7 +406,7 @@ export default function Home() {
             )}
             {/* Category pill overlaid on image (bottom-left) — colored by category */}
             <span
-              className="absolute bottom-2 left-2 z-10 flex items-center gap-1 px-2 py-0.5 rounded text-[9px] tracking-wider uppercase font-medium text-white"
+              className="phantom-on-dark absolute bottom-2 left-2 z-10 flex items-center gap-1 px-2 py-0.5 rounded text-[9px] tracking-wider uppercase font-medium text-white"
               style={{ background: accent.pill }}
             >
               <Icon size={9} />
@@ -683,6 +722,11 @@ export default function Home() {
         layoutMode="overlay"
         onLayoutToggle={() => {}}
       />
+
+      {/* ===== Article Reader (in-app popup) ===== */}
+      {readerArticle && (
+        <ArticleReader article={readerArticle} provider={chatProvider} onClose={() => setReaderArticle(null)} />
+      )}
     </div>
   );
 }

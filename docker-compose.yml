@@ -8,6 +8,13 @@ services:
     # RDB snapshots survive container recreation via this named volume.
     volumes:
       - technews-redis:/data
+    # AI summaries use a free OpenAI-compatible provider configured via env.
+    # Get a free key at console.groq.com, then `export SUMMARY_API_KEY=...`.
+    # (Defaults below point to Groq; any OpenAI-compatible endpoint works.)
+    environment:
+      - SUMMARY_API_KEY=${SUMMARY_API_KEY:-}
+      - SUMMARY_BASE_URL=${SUMMARY_BASE_URL:-https://api.groq.com/openai/v1}
+      - SUMMARY_MODEL=${SUMMARY_MODEL:-llama-3.3-70b-versatile}
     restart: unless-stopped
 
 volumes:
