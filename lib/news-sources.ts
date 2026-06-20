@@ -28,6 +28,11 @@ const DEFAULT_SOURCES: NewsSource[] = [
   { url: 'https://blog.google/technology/ai/rss/', category: 'AI', source: 'Google AI Blog', maxItems: 15, fallbackUrls: [] },
   { url: 'https://openai.com/blog/rss.xml', category: 'AI', source: 'OpenAI Blog', maxItems: 15, fallbackUrls: ['https://openai.com/news/rss'] },
   { url: 'https://spectrum.ieee.org/feeds/topic/artificial-intelligence.rss', category: 'AI', source: 'IEEE Spectrum AI', maxItems: 15, fallbackUrls: [] },
+  { url: 'https://www.technologyreview.com/topic/artificial-intelligence/feed', category: 'AI', source: 'MIT Tech Review AI', maxItems: 15, fallbackUrls: [] },
+  { url: 'https://the-decoder.com/feed/', category: 'AI', source: 'The Decoder', maxItems: 15, fallbackUrls: [] },
+  { url: 'https://venturebeat.com/category/ai/feed/', category: 'AI', source: 'VentureBeat AI', maxItems: 15, fallbackUrls: [] },
+  { url: 'https://www.marktechpost.com/feed/', category: 'AI', source: 'MarkTechPost', maxItems: 15, fallbackUrls: [] },
+  { url: 'https://www.kdnuggets.com/feed', category: 'AI', source: 'KDnuggets', maxItems: 10, fallbackUrls: [] },
 
   // --- Innovation ---
   { url: 'https://feeds.arstechnica.com/arstechnica/index', category: 'Innovation', source: 'Ars Technica', maxItems: 15, fallbackUrls: ['https://arstechnica.com/feed/'] },

@@ -192,6 +192,35 @@
   transform: none;
 }
 
+/* Zone boundary gates — slim 3D dividers between category zones. */
+.phantom-zone-gate {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  border-radius: 6px;
+  box-shadow: 0 0 24px oklch(0 0 0 / 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 6;
+  transform-style: preserve-3d;
+  backface-visibility: hidden;
+  pointer-events: none;
+}
+.phantom-zone-gate-label {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #fff;
+  font-weight: 700;
+  white-space: nowrap;
+  padding: 10px 0;
+  text-shadow: 0 1px 2px oklch(0 0 0 / 0.6);
+}
+
 /* Side vignettes fade the wall into darkness at the edges. */
 .phantom-vignette-left,
 .phantom-vignette-right {
@@ -231,7 +260,7 @@
 }
 
 .phantom-card {
-  background: oklch(0.09 0 0);
+  background: var(--card-tint, oklch(0.09 0 0));
   border: 1px solid oklch(1 0 0 / 8%);
   border-radius: 14px;
   overflow: hidden;
@@ -241,7 +270,7 @@
 
 .phantom-card:hover {
   border-color: oklch(1 0 0 / 22%);
-  background: oklch(0.13 0 0);
+  background: color-mix(in oklch, var(--card-tint, oklch(0.09 0 0)) 60%, oklch(0.2 0 0));
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7), 0 0 50px var(--card-glow, oklch(0.62 0.2 264 / 0.12));
 }
 

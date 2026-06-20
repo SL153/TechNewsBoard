@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { RefreshCw, Moon, Sun, ExternalLink, Clock, Search, Bookmark, BookmarkCheck, Settings, X, ArrowUpRight, MessageCircle, Rss, SlidersHorizontal, MousePointer2, Rocket, Smartphone, Sparkles, Lightbulb, Code, Flame, Newspaper } from 'lucide-react';
 import Link from 'next/link';
 import ChatSidebar from './components/ChatSidebar';
@@ -13,23 +13,24 @@ import ArticleReader from './components/ArticleReader';
 import { getEnabledSources } from '@/lib/feed-store';
 import * as NotificationStore from '@/lib/notification-store';
 
-const CATEGORY_MAP = ['All', 'Startups', 'Consumer Tech', 'AI', 'Innovation', 'Open Source'];
+// Fixed left→right zone order on the dome (categories are spatial zones, not filters).
+const ZONE_ORDER = ['Startups', 'Consumer Tech', 'AI', 'Innovation', 'Open Source'];
 const LANGUAGES = ['English', '繁體中文'];
 
 // Per-category accent system: gradient stripe, hover-glow colour, pill colour,
-// and an icon — so cards stand out by category at a glance.
+// a card-background tint, and an icon — so cards stand out by category at a glance.
 const CATEGORY_ACCENTS = {
-  'Startups':      { gradient: 'from-sky-500 to-indigo-600',     glow: 'oklch(0.62 0.19 255 / 0.20)', pill: 'oklch(0.55 0.18 255 / 0.9)',  icon: Rocket },
-  'Consumer Tech': { gradient: 'from-cyan-400 to-teal-500',      glow: 'oklch(0.7 0.14 195 / 0.20)',  pill: 'oklch(0.6 0.14 195 / 0.9)',  icon: Smartphone },
-  'AI':            { gradient: 'from-violet-500 to-fuchsia-600', glow: 'oklch(0.62 0.2 300 / 0.20)',  pill: 'oklch(0.55 0.2 300 / 0.9)',  icon: Sparkles },
-  'Innovation':    { gradient: 'from-amber-400 to-orange-600',   glow: 'oklch(0.72 0.17 65 / 0.20)',  pill: 'oklch(0.62 0.16 65 / 0.9)',  icon: Lightbulb },
-  'Open Source':   { gradient: 'from-emerald-500 to-green-600',  glow: 'oklch(0.7 0.15 160 / 0.20)',  pill: 'oklch(0.58 0.15 160 / 0.9)', icon: Code },
+  'Startups':      { gradient: 'from-sky-500 to-indigo-600',     glow: 'oklch(0.62 0.19 255 / 0.20)', pill: 'oklch(0.55 0.18 255 / 0.9)',  tint: 'oklch(0.13 0.03 255)', color: 'oklch(0.55 0.18 255)', icon: Rocket },
+  'Consumer Tech': { gradient: 'from-cyan-400 to-teal-500',      glow: 'oklch(0.7 0.14 195 / 0.20)',  pill: 'oklch(0.6 0.14 195 / 0.9)',  tint: 'oklch(0.13 0.03 195)', color: 'oklch(0.6 0.14 195)',  icon: Smartphone },
+  'AI':            { gradient: 'from-violet-500 to-fuchsia-600', glow: 'oklch(0.62 0.2 300 / 0.20)',  pill: 'oklch(0.55 0.2 300 / 0.9)',  tint: 'oklch(0.14 0.035 300)', color: 'oklch(0.55 0.2 300)', icon: Sparkles },
+  'Innovation':    { gradient: 'from-amber-400 to-orange-600',   glow: 'oklch(0.72 0.17 65 / 0.20)',  pill: 'oklch(0.62 0.16 65 / 0.9)',  tint: 'oklch(0.14 0.03 65)', color: 'oklch(0.62 0.16 65)',  icon: Lightbulb },
+  'Open Source':   { gradient: 'from-emerald-500 to-green-600',  glow: 'oklch(0.7 0.15 160 / 0.20)',  pill: 'oklch(0.58 0.15 160 / 0.9)', tint: 'oklch(0.13 0.03 160)', color: 'oklch(0.58 0.15 160)', icon: Code },
 };
-const DEFAULT_ACCENT = { gradient: 'from-slate-500 to-gray-700', glow: 'oklch(0.6 0.02 264 / 0.15)', pill: 'oklch(0.4 0.02 264 / 0.9)', icon: Newspaper };
+const DEFAULT_ACCENT = { gradient: 'from-slate-500 to-gray-700', glow: 'oklch(0.6 0.02 264 / 0.15)', pill: 'oklch(0.4 0.02 264 / 0.9)', tint: 'oklch(0.11 0.005 264)', color: 'oklch(0.4 0.02 264)', icon: Newspaper };
 
 function accentFor(item) {
   if (item.source === 'Hacker News') {
-    return { gradient: 'from-orange-500 to-red-600', glow: 'oklch(0.65 0.2 35 / 0.20)', pill: 'oklch(0.58 0.19 35 / 0.9)', icon: Flame };
+    return { gradient: 'from-orange-500 to-red-600', glow: 'oklch(0.65 0.2 35 / 0.20)', pill: 'oklch(0.58 0.19 35 / 0.9)', tint: 'oklch(0.14 0.035 35)', color: 'oklch(0.58 0.19 35)', icon: Flame };
   }
   return CATEGORY_ACCENTS[item.category] || DEFAULT_ACCENT;
 }
@@ -106,7 +107,11 @@ export default function Home() {
   const [news, setNews] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [selectedCategories, setSelectedCategories] = useState(null);
+  // Zone navigation: activeZone highlights the current zone pill; flyNonce +
+  // flyTargetCol tell PhantomDome to animate to a zone's start column.
+  const [activeZone, setActiveZone] = useState('Startups');
+  const [flyNonce, setFlyNonce] = useState(0);
+  const [flyTargetCol, setFlyTargetCol] = useState(0);
   const [selectedSources, setSelectedSources] = useState(null);
   const [dayRange, setDayRange] = useState(3);
   const [sortBy, setSortBy] = useState('newest');
@@ -131,17 +136,16 @@ export default function Home() {
   // Sliding-window feed: PhantomDome windows the full list itself. This key
   // changes whenever the active filters change, telling PhantomDome to jump
   // back to the start of the newly-filtered list.
-  const resetKey = `${[...(selectedCategories || [])].sort().join(',')}|${[...(selectedSources || [])].sort().join(',')}|${dayRange}|${sortBy}|${debouncedSearchQuery}|${selectedLanguage}`;
+  const resetKey = `${[...(selectedSources || [])].sort().join(',')}|${dayRange}|${sortBy}|${debouncedSearchQuery}|${selectedLanguage}`;
 
-  // Current window range reported by PhantomDome, for the position indicator.
-  const [windowInfo, setWindowInfo] = useState({ from: 0, to: 0, total: 0 });
+  // Current window range + zone reported by PhantomDome, for the indicator.
+  const [windowInfo, setWindowInfo] = useState({ from: 0, to: 0, total: 0, zone: null });
 
   useEffect(() => {
     fetchNews();
-  }, [dayRange, selectedCategories, debouncedSearchQuery, selectedLanguage]);
+  }, [dayRange, debouncedSearchQuery, selectedLanguage]);
 
   useEffect(() => {
-    setSelectedCategories(new Set(['All']));
     setSelectedSources(new Set());
     setBookmarks(loadBookmarks());
     setChatProvider(loadChatProvider());
@@ -194,9 +198,6 @@ export default function Home() {
     try {
       const params = new URLSearchParams();
       if (dayRange < Infinity && dayRange !== undefined) params.set('days', String(dayRange));
-
-      const cats = selectedCategories || new Set(['All']);
-      if (!cats.has('All')) [...cats].forEach(cat => params.append('category', cat));
       if (searchQuery.trim()) params.set('q', searchQuery.trim());
 
       const enabledSources = getEnabledSources();
@@ -225,16 +226,13 @@ export default function Home() {
     }
   }
 
-  function toggleCategory(cat) {
-    setSelectedCategories(prev => {
-      const next = new Set(prev);
-      if (cat === 'All') { next.clear(); next.add('All'); }
-      else {
-        if (next.has(cat)) { next.delete(cat); if (next.size === 0) next.add('All'); }
-        else { next.delete('All'); next.add(cat); }
-      }
-      return next;
-    });
+  // Category pills navigate (fly) to a zone instead of filtering.
+  function flyToZone(cat) {
+    const zone = zones.find(z => z.category === cat);
+    if (!zone) return;
+    setActiveZone(cat);
+    setFlyTargetCol(zone.startCol);
+    setFlyNonce(n => n + 1);
   }
 
   function toggleSource(source) {
@@ -247,7 +245,6 @@ export default function Home() {
   }
 
   function handleResetFilters() {
-    setSelectedCategories(new Set(['All']));
     setSelectedSources(new Set());
     setDayRange(3);
     setSortBy('newest');
@@ -272,9 +269,7 @@ export default function Home() {
   const allSources = [...new Set(news.map(n => n.source))].sort();
 
   const filteredNews = news.filter(n => {
-    const cats = selectedCategories || new Set(['All']);
     const sources = selectedSources || new Set();
-    if (!cats.has('All') && !cats.has(n.category)) return false;
     if (sources.size > 0 && !sources.has(n.source)) return false;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -287,6 +282,42 @@ export default function Home() {
     if (sortBy === 'newest') return new Date(b.pubDate || 0) - new Date(a.pubDate || 0);
     return new Date(a.pubDate || 0) - new Date(b.pubDate || 0);
   });
+
+  // Group into category zones (fixed left→right order) so the dome shows
+  // contiguous zones. Accents already cluster per category; zones also drive
+  // the fly-to-zone navigation and the gate markers.
+  const { zonedNews, zones } = useMemo(() => {
+    const byCat = {};
+    for (const cat of ZONE_ORDER) byCat[cat] = [];
+    for (const n of sortedNews) {
+      if (byCat[n.category]) byCat[n.category].push(n);
+    }
+    const zoned = [];
+    const zs = [];
+    for (const cat of ZONE_ORDER) {
+      const group = byCat[cat];
+      if (group.length === 0) continue;
+      const startIndex = zoned.length;
+      zoned.push(...group);
+      const ac = CATEGORY_ACCENTS[cat] || DEFAULT_ACCENT;
+      zs.push({ category: cat, startIndex, startCol: Math.floor(startIndex / 3), count: group.length, color: ac.color });
+    }
+    return { zonedNews: zoned, zones: zs };
+  }, [sortedNews]);
+
+  // Keep activeZone valid as the dataset changes; fall back to the first zone.
+  useEffect(() => {
+    if (zones.length === 0) return;
+    if (!zones.some(z => z.category === activeZone)) {
+      setActiveZone(zones[0].category);
+    }
+  }, [zones, activeZone]);
+
+  // The pill highlight follows whatever zone is currently centred (reported by
+  // PhantomDome on fly-arrival and on scroll), so pill + indicator always agree.
+  useEffect(() => {
+    if (windowInfo.zone) setActiveZone(windowInfo.zone);
+  }, [windowInfo.zone]);
 
   // sortedNews feeds the sliding-window wall directly (PhantomDome windows it).
 
@@ -333,7 +364,6 @@ export default function Home() {
   }
 
   const activeFilterCount =
-    (selectedCategories && !selectedCategories.has('All') ? selectedCategories.size : 0) +
     ((selectedSources?.size ?? 0) > 0 ? 1 : 0) +
     (dayRange !== 3 ? 1 : 0) +
     (searchQuery.trim() ? 1 : 0) +
@@ -351,7 +381,7 @@ export default function Home() {
     return (
       <div
         className={`phantom-card group relative flex flex-col h-full ${isSelected ? 'ring-1 ring-blue-400/50' : ''}`}
-        style={{ '--card-glow': accent.glow }}
+        style={{ '--card-glow': accent.glow, '--card-tint': accent.tint }}
       >
         {/* Selection checkbox */}
         <button
@@ -514,11 +544,14 @@ export default function Home() {
         </div>
       )}
 
-      {!loading && !error && sortedNews.length > 0 && (
+      {!loading && !error && zonedNews.length > 0 && (
         <PhantomDome
-          items={sortedNews}
+          items={zonedNews}
+          zones={zones}
           renderItem={renderCard}
           resetKey={resetKey}
+          flyNonce={flyNonce}
+          flyTargetCol={flyTargetCol}
           cardWidth={320}
           cardHeight={320}
           radius={2100}
@@ -531,10 +564,10 @@ export default function Home() {
         />
       )}
 
-      {/* Window position indicator (how many stories are in view) */}
-      {!loading && !error && sortedNews.length > 0 && windowInfo.total > 0 && (
+      {/* Window position indicator (current zone + how many stories are in view) */}
+      {!loading && !error && zonedNews.length > 0 && windowInfo.total > 0 && (
         <div className="fixed bottom-[68px] left-1/2 -translate-x-1/2 z-40 phantom-news-left">
-          {windowInfo.from}–{windowInfo.to} of {windowInfo.total} stories
+          {activeZone} · {windowInfo.from}–{windowInfo.to} of {windowInfo.total}
         </div>
       )}
 
@@ -546,14 +579,14 @@ export default function Home() {
         </div>
       )}
 
-      {/* ===== BOTTOM NAV (categories) ===== */}
+      {/* ===== BOTTOM NAV (category zones — click to fly there) ===== */}
       {!loading && (
         <nav className="phantom-bottomnav">
-          {CATEGORY_MAP.map(cat => (
+          {ZONE_ORDER.map(cat => (
             <button
               key={cat}
-              onClick={() => toggleCategory(cat)}
-              className={`phantom-nav-pill ${(selectedCategories || new Set(['All'])).has(cat) ? 'active' : ''}`}
+              onClick={() => flyToZone(cat)}
+              className={`phantom-nav-pill ${activeZone === cat ? 'active' : ''}`}
             >
               {cat}
             </button>
@@ -609,15 +642,6 @@ export default function Home() {
                 <div className="flex flex-wrap gap-2">
                   {LANGUAGES.map(lang => (
                     <button key={lang} onClick={() => setSelectedLanguage(lang)} className={`phantom-pill ${selectedLanguage === lang ? 'active' : ''}`}>{lang}</button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <p className="phantom-mono-dim mb-2.5">Category</p>
-                <div className="flex flex-wrap gap-2">
-                  {CATEGORY_MAP.map(cat => (
-                    <button key={cat} onClick={() => toggleCategory(cat)} className={`phantom-pill ${(selectedCategories || new Set(['All'])).has(cat) ? 'active' : ''}`}>{cat}</button>
                   ))}
                 </div>
               </div>

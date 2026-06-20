@@ -34,6 +34,9 @@ export default function PhantomDome({
   items = [],
   renderItem,
   resetKey,
+  zones,
+  flyNonce = 0,
+  flyTargetCol = 0,
   cardWidth = 320,
   cardHeight = 320,
   radius = 2100,
@@ -81,6 +84,12 @@ export default function PhantomDome({
   const rafRef = useRef(null);
   const [grabbing, setGrabbing] = useState(false);
 
+  // Fly-to-zone animation state. lockBaseRef holds the dome on the target zone
+  // after a fly until the user actively drags/scrolls (otherwise the auto
+  // recenter would immediately slide away from the zone start).
+  const flyAnimRef = useRef(null);
+  const lockBaseRef = useRef(false);
+
   const clampY = useCallback((v) => Math.max(minRotY, Math.min(maxRotY, v)), [minRotY, maxRotY]);
   const clampX = useCallback((v) => Math.max(-maxTilt, Math.min(maxTilt, v)), [maxTilt]);
 
@@ -99,6 +108,7 @@ export default function PhantomDome({
   // way), slide the window by K columns and compensate rotY so nothing visibly
   // moves.
   const maybeShiftWindow = useCallback(() => {
+    if (lockBaseRef.current) return; // holding a zone after a fly
     const cCenter = (LEFT_ANCHOR_DEG + rotYRef.current) / colStep;
     if (cCenter > windowCols - EDGE_BUFFER_COLS && baseColRef.current < maxBaseCol) {
       const K = Math.min(Math.max(1, Math.round(cCenter - windowCols / 2)), maxBaseCol - baseColRef.current);
@@ -117,9 +127,47 @@ export default function PhantomDome({
     }
   }, [colStep, windowCols, maxBaseCol, clampY]);
 
+  // Report the current window + the zone under the SCREEN CENTRE to the parent.
+  // Skipped mid-flight so the indicator never flashes the pre-fly zone; the
+  // final report is fired from the tick when the tween completes. `zones` is
+  // read via a ref so this callback (and thus the tick) stays referentially
+  // stable across renders.
+  const zonesRef = useRef(zones);
+  zonesRef.current = zones;
+  const reportWindow = useCallback(() => {
+    if (!onWindowChange) return;
+    if (flyAnimRef.current) return;
+    const start = Math.min(baseColRef.current, maxBaseCol);
+    const total = items.length;
+    const from = total > 0 ? Math.min(start * MAX_ROWS + 1, total) : 0;
+    const to = total > 0 ? Math.min((start + windowCols) * MAX_ROWS, total) : 0;
+    const cCenter = (LEFT_ANCHOR_DEG + rotYRef.current) / colStep;
+    const centeredFullCol = Math.round(start + cCenter);
+    let zone = null;
+    const zs = zonesRef.current;
+    if (zs && zs.length) {
+      for (const z of zs) {
+        const end = z.startCol + Math.max(1, Math.ceil(z.count / MAX_ROWS));
+        if (centeredFullCol >= z.startCol && centeredFullCol < end) { zone = z.category; break; }
+      }
+    }
+    onWindowChange({ from, to, total, zone });
+  }, [onWindowChange, maxBaseCol, items.length, windowCols]);
+
   // ── Inertia loop ───────────────────────────────────────────────
   const tick = useCallback(() => {
-    if (!draggingRef.current) {
+    if (flyAnimRef.current) {
+      // Fly-to-zone tween in progress — it owns rotY; skip inertia/shift.
+      const a = flyAnimRef.current;
+      const t = Math.min(1, (performance.now() - a.start) / a.dur);
+      const e = 1 - Math.pow(1 - t, 3); // easeOutCubic
+      rotYRef.current = a.fromRot + (a.toRot - a.fromRot) * e;
+      if (t >= 1) {
+        flyAnimRef.current = null;
+        reportWindow(); // rotY has settled on the zone — report the correct zone now
+      }
+      applyTransform();
+    } else if (!draggingRef.current) {
       const friction = 0.92;
       const stop = 0.002;
 
@@ -137,7 +185,7 @@ export default function PhantomDome({
       applyTransform();
     }
     rafRef.current = requestAnimationFrame(tick);
-  }, [applyTransform, clampY, clampX, maxRotY, maxTilt, maybeShiftWindow]);
+  }, [applyTransform, clampY, clampX, maxRotY, maxTilt, maybeShiftWindow, reportWindow]);
 
   useEffect(() => {
     applyTransform();
@@ -151,8 +199,34 @@ export default function PhantomDome({
     setBaseCol(0);
     rotYRef.current = initialOffsetDeg;
     velYRef.current = 0;
+    flyAnimRef.current = null;
+    lockBaseRef.current = false;
     applyTransform();
   }, [resetKey, initialOffsetDeg, applyTransform]);
+
+  // Fly to a zone: snap baseCol so the zone is in the window, then tween rotY
+  // so the zone's FIRST column lands at the same screen spot as a fresh start
+  // (the left edge). For the last zone, baseCol clamps to maxBaseCol and the
+  // zone start sits partway into the window, so we offset rotY by that amount.
+  useEffect(() => {
+    if (flyNonce <= 0) return;
+    const targetBase = Math.max(0, Math.min(flyTargetCol, maxBaseCol));
+    const zoneStartRenderedCol = Math.max(0, flyTargetCol - targetBase);
+    const toRot = Math.max(
+      minRotY,
+      Math.min(maxRotY, initialOffsetDeg + zoneStartRenderedCol * colStep),
+    );
+    baseColRef.current = targetBase;
+    setBaseCol(targetBase);
+    velYRef.current = 0;
+    lockBaseRef.current = true;
+    flyAnimRef.current = {
+      fromRot: rotYRef.current,
+      toRot,
+      start: performance.now(),
+      dur: 650,
+    };
+  }, [flyNonce, flyTargetCol, maxBaseCol, minRotY, maxRotY, colStep, initialOffsetDeg]);
 
   // Keep baseCol valid if the list shrinks.
   useEffect(() => {
@@ -170,6 +244,8 @@ export default function PhantomDome({
     function onDown(e) {
       if (e.target.closest('a, button')) return;
       draggingRef.current = true;
+      lockBaseRef.current = false; // user took control — allow sliding again
+      flyAnimRef.current = null;
       setGrabbing(true);
       lastPosRef.current = { x: e.clientX, y: e.clientY };
       velYRef.current = 0;
@@ -217,6 +293,7 @@ export default function PhantomDome({
     if (!el) return;
     function onWheel(e) {
       e.preventDefault();
+      lockBaseRef.current = false; // user took control — allow sliding again
       const sens = 0.03;
       if (e.deltaX || e.shiftKey) velYRef.current += (e.deltaX || e.deltaY) * sens;
       if (e.deltaY && !e.shiftKey) velXRef.current += e.deltaY * sens * (verticalDamping ?? 1);
@@ -244,17 +321,30 @@ export default function PhantomDome({
   const atStart = baseCol <= 0;
   const atEnd = baseCol >= maxBaseCol && totalCols <= windowCols ? false : baseCol >= maxBaseCol;
 
-  // Report the current window's story range to the parent for the indicator.
-  // Deps are value-stable (numbers) so this fires only when the window actually
-  // moves — not on every parent re-render.
+  // Zone boundary gates: a divider at each zone boundary currently in view
+  // (skipping the first zone, which has no preceding boundary).
+  const windowStart = Math.min(baseCol, maxBaseCol);
+  const gates = [];
+  if (zones && zones.length > 1) {
+    for (let i = 1; i < zones.length; i++) {
+      const z = zones[i];
+      const renderedCol = z.startCol - windowStart;
+      if (renderedCol > -1 && renderedCol < windowCols + 1) {
+        gates.push({
+          key: z.category,
+          label: z.category,
+          color: z.color,
+          lon: LEFT_ANCHOR_DEG - (renderedCol - 0.5) * colStep,
+        });
+      }
+    }
+  }
+
+  // Report when the window moves (baseCol shifts during scroll). The fly's own
+  // arrival report fires from the tick; reportWindow skips while in flight.
   useEffect(() => {
-    if (!onWindowChange) return;
-    const start = Math.min(baseCol, maxBaseCol);
-    const total = items.length;
-    const from = total > 0 ? Math.min(start * MAX_ROWS + 1, total) : 0;
-    const to = total > 0 ? Math.min((start + windowCols) * MAX_ROWS, total) : 0;
-    onWindowChange({ from, to, total });
-  }, [baseCol, windowCols, maxBaseCol, items.length, onWindowChange]);
+    reportWindow();
+  }, [baseCol, reportWindow]);
 
   return (
     <div
@@ -290,6 +380,22 @@ export default function PhantomDome({
               );
             });
           })}
+          {gates.map(g => (
+            <div
+              key={`gate-${g.key}`}
+              className="phantom-zone-gate"
+              style={{
+                width: '16px',
+                height: `${cardHeight}px`,
+                marginLeft: '-8px',
+                marginTop: `-${cardHeight / 2}px`,
+                background: g.color,
+                transform: `rotateY(${g.lon}deg) translateZ(${-radius + 140}px)`,
+              }}
+            >
+              <span className="phantom-zone-gate-label">{g.label}</span>
+            </div>
+          ))}
         </div>
       </div>
 
